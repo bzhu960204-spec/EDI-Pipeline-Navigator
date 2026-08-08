@@ -2,8 +2,8 @@ param(
   [int]$BackendPort = 8080,
   [int]$FrontendPort = 5173,
   [switch]$StopExisting = $false,
-  [string]$JavaHome = "C:\Users\ANGUTANG\jdk-17.0.19+10",
-  [string]$NodeHome = "C:\Users\ANGUTANG\node-v24.14.1-win-x64",
+  [string]$JavaHome = "",
+  [string]$NodeHome = "",
   [string]$MavenBin = ""
 )
 
@@ -49,18 +49,61 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $backendDir = Join-Path $scriptRoot 'backend'
 $frontendDir = Join-Path $scriptRoot 'frontend'
 
+# Load .env so tool paths and ports are configurable per machine (see .env.example).
+$envFile = Join-Path $scriptRoot '.env'
+if (Test-Path $envFile) {
+  Get-Content $envFile | ForEach-Object {
+    if ($_ -match '^\s*([^#=]+)=(.*)$') {
+      $key = $matches[1].Trim()
+      $value = $matches[2].Trim()
+      [Environment]::SetEnvironmentVariable($key, $value, 'Process')
+    }
+  }
+  Write-Host "[env] Loaded .env file"
+
+  # Honor ports from .env only when the caller did not override them.
+  if (-not $PSBoundParameters.ContainsKey('BackendPort') -and $env:BACKEND_PORT) { $BackendPort = [int]$env:BACKEND_PORT }
+  if (-not $PSBoundParameters.ContainsKey('FrontendPort') -and $env:FRONTEND_PORT) { $FrontendPort = [int]$env:FRONTEND_PORT }
+}
+
 if (-not (Test-Path $backendDir)) { throw "Backend directory not found: $backendDir" }
 if (-not (Test-Path $frontendDir)) { throw "Frontend directory not found: $frontendDir" }
 
-# Resolve the Maven launcher: caller override -> PATH -> known install location.
-if (-not $MavenBin) {
-  $mvnOnPath = (Get-Command mvn.cmd -ErrorAction SilentlyContinue).Source
-  if ($mvnOnPath) { $MavenBin = $mvnOnPath }
-  else { $MavenBin = "C:\Users\ANGUTANG\Downloads\apache-maven-3.8.4\bin\mvn.cmd" }
+# Resolve JAVA_HOME: -JavaHome override -> JAVA_HOME env/.env -> derived from java on PATH.
+if (-not $JavaHome) {
+  if ($env:JAVA_HOME) {
+    $JavaHome = $env:JAVA_HOME
+  } else {
+    $javaOnPath = (Get-Command java.exe -ErrorAction SilentlyContinue).Source
+    if ($javaOnPath) { $JavaHome = Split-Path -Parent (Split-Path -Parent $javaOnPath) }
+  }
 }
-if (-not (Test-Path $MavenBin)) { throw "Maven not found at '$MavenBin'. Pass -MavenBin <path-to-mvn.cmd>." }
-if (-not (Test-Path $JavaHome)) { throw "JAVA_HOME not found: $JavaHome. Pass -JavaHome <path>." }
-if (-not (Test-Path $NodeHome)) { throw "Node home not found: $NodeHome. Pass -NodeHome <path>." }
+if (-not $JavaHome) { throw "Java not found. Add java to PATH, set JAVA_HOME in .env, or pass -JavaHome <path>." }
+if (-not (Test-Path $JavaHome)) { throw "JAVA_HOME not found: $JavaHome. Fix JAVA_HOME in .env or pass -JavaHome <path>." }
+
+# Resolve Node home: -NodeHome override -> NODE_HOME env/.env -> derived from node on PATH.
+if (-not $NodeHome) {
+  if ($env:NODE_HOME) {
+    $NodeHome = $env:NODE_HOME
+  } else {
+    $nodeOnPath = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+    if ($nodeOnPath) { $NodeHome = Split-Path -Parent $nodeOnPath }
+  }
+}
+if (-not $NodeHome) { throw "Node not found. Add node to PATH, set NODE_HOME in .env, or pass -NodeHome <path>." }
+if (-not (Test-Path $NodeHome)) { throw "Node home not found: $NodeHome. Fix NODE_HOME in .env or pass -NodeHome <path>." }
+
+# Resolve the Maven launcher: -MavenBin override -> MAVEN_BIN env/.env -> mvn.cmd on PATH.
+if (-not $MavenBin) {
+  if ($env:MAVEN_BIN) {
+    $MavenBin = $env:MAVEN_BIN
+  } else {
+    $mvnOnPath = (Get-Command mvn.cmd -ErrorAction SilentlyContinue).Source
+    if ($mvnOnPath) { $MavenBin = $mvnOnPath }
+  }
+}
+if (-not $MavenBin) { throw "Maven not found. Add mvn to PATH, set MAVEN_BIN in .env, or pass -MavenBin <path-to-mvn.cmd>." }
+if (-not (Test-Path $MavenBin)) { throw "Maven not found at '$MavenBin'. Fix MAVEN_BIN in .env or pass -MavenBin <path-to-mvn.cmd>." }
 
 if ($StopExisting) {
   Stop-ListeningProcessByPort -Port $BackendPort
