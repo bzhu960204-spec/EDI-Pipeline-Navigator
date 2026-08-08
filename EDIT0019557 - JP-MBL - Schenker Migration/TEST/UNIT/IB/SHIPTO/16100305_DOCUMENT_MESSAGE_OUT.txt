@@ -1,0 +1,30 @@
+
+<cdm:DocumentMessage xmlns:cdm="http://esb.dsv.com/CDM/DocumentMessage_V2" xmlns:b="http://schemas.microsoft.com/BizTalk/2003" xmlns:ns0="https://MH.ESB.CDM.SharedDataTypes_V2.HeaderPropertySchema_V2" xmlns:ns2="https://MH.ESB.CDM.PropertySchemas.Header_PropertySchema">
+<cdm:Header>
+<cdm:MessageId>16100305</cdm:MessageId>
+<cdm:TimeStamp>20260730</cdm:TimeStamp>
+<cdm:Source>
+<cdm:EnterpriseCode>JP-MBL</cdm:EnterpriseCode>
+<cdm:ApplicationCode>SI-ITAC</cdm:ApplicationCode>
+</cdm:Source>
+<cdm:Target>
+<cdm:EnterpriseCode>DSV.WMS.NGW</cdm:EnterpriseCode>
+<cdm:Division>Solutions</cdm:Division>
+<cdm:ApplicationCode>NGW</cdm:ApplicationCode>
+</cdm:Target>
+<cdm:FunctionalDomain>Operations</cdm:FunctionalDomain>
+<cdm:ESBDomain>Default</cdm:ESBDomain>
+<cdm:ESBInstructions>
+<cdm:ESBInstruction></cdm:ESBInstruction>
+<cdm:ESBInstruction Type="FileName">MBLSSTOD_20260629134129.txt</cdm:ESBInstruction>
+</cdm:ESBInstructions>
+<cdm:MessageType>SHIPTO</cdm:MessageType>
+<cdm:Version>2.0</cdm:Version>
+</cdm:Header>
+<cdm:Document>
+<cdm:FileName>MBLSSTOD_20260629134129.txt</cdm:FileName>
+<cdm:FileType>POS</cdm:FileType>
+<cdm:Parties></cdm:Parties>
+<cdm:Binary>MjAyNjA2MjkwMDAwMDAwMTEwVDA5OTQwMEpUQyBEaWFnbm9zdGljcyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgSlRDIERpYWdub3N0aWNzICAgICAgICAgICAgICAgMzQ1MTYgICAgICAgICAgU2NodWx3ZWcgNywgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBWb2hsLCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICs0OTE2MzI3NTg0OTkgIA0K</cdm:Binary>
+</cdm:Document>
+</cdm:DocumentMessage>

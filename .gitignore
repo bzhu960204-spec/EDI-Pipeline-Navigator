@@ -1,0 +1,64 @@
+# ===== Build output =====
+target/
+build/
+dist/
+out/
+*.class
+
+# ===== Java / Maven =====
+.mvn/wrapper/maven-wrapper.jar
+release.properties
+dependency-reduced-pom.xml
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+buildNumber.properties
+
+# ===== Node / Frontend =====
+node_modules/
+.vite/
+.cache/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===== Runtime data (H2 DB, uploaded artifacts) =====
+data/
+*.mv.db
+*.trace.db
+
+# ===== Dev launcher state =====
+.edinav-dev-state.json
+
+# ===== Logs =====
+logs/
+*.log
+
+# ===== Environment / secrets =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ===== IDE / Editor =====
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# ===== OS =====
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+$RECYCLE.BIN/
+
+# ===== Archives =====
+*.zip
+# Keep the migration deliverable archive (explicitly tracked)
+!EDIT0019557 - JP-MBL - Schenker Migration.zip

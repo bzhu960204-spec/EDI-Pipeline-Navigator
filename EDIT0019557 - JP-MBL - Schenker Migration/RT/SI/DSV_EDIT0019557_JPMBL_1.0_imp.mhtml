@@ -1,0 +1,766 @@
+From: <Saved by Blink>
+Snapshot-Content-Location: https://qa.si.emea.dsv.com/dashboard/Page?next=page.impexpreport&type=import&wizType=Import&wizObjType=0&undo=false
+Subject: Administration
+Date: Thu, 30 Jul 2026 21:09:53 +0530
+MIME-Version: 1.0
+Content-Type: multipart/related;
+	type="text/html";
+	boundary="----MultipartBoundary--mkpXaGU65J8KcaMZGbn1g3tn4l0AOQigEpoozBdvH9----"
+
+
+------MultipartBoundary--mkpXaGU65J8KcaMZGbn1g3tn4l0AOQigEpoozBdvH9----
+Content-Type: text/html
+Content-ID: <frame-D420A5EDA4175E431BA66CD7F894EF58@mhtml.blink>
+Content-Transfer-Encoding: quoted-printable
+Content-Location: https://qa.si.emea.dsv.com/dashboard/Page?next=page.impexpreport&type=import&wizType=Import&wizObjType=0&undo=false
+
+<!DOCTYPE html PUBLIC "-//IETF//DTD HTML//EN"><html><head><meta http-equiv=
+=3D"Content-Type" content=3D"text/html; charset=3DUTF-8">
+<meta http-equiv=3D"charset" content=3D"UTF-8">
+
+
+
+
+<!--
+ (C) Copyright 2001 - 2010 Sterling Commerce, Inc. ALL RIGHTS RESERVED
+
+ ** Trade Secret Notice **
+
+ This software, and the information and know-how it contains, is
+ proprietary and confidential and constitutes valuable trade secrets
+ of Sterling Commerce, Inc., its affiliated companies or its or
+ their licensors, and may not be used for any unauthorized purpose
+ or disclosed to others without the prior written permission of the
+ applicable Sterling Commerce entity. This software and the
+ information and know-how it contains have been provided
+ pursuant to a license agreement which contains prohibitions
+ against and/or restrictions on its copying, modification and use.
+ Duplication, in whole or in part, if and when permitted, shall
+ bear this notice and the Sterling Commerce, Inc. copyright
+ legend. As and when provided to any governmental entity,
+ government contractor or subcontractor subject to the FARs,
+ this software is provided with RESTRICTED RIGHTS under
+ Title 48 CFR 52.227-19.
+ Further, as and when provided to any governmental entity,
+ government contractor or subcontractor subject to DFARs,
+ this software is provided pursuant to the customary
+ Sterling Commerce license, as described in Title 48
+ CFR 227-7202 with respect to commercial software and commercial
+ software documentation.
+-->
+
+
+
+
+
+<title>Administration</title>
+
+<!-- initalizes the toolbar attributes -->
+
+
+
+<link rel=3D"stylesheet" type=3D"text/css" href=3D"https://qa.si.emea.dsv.c=
+om/dashboard/css/blue/admin.css">
+
+</head>
+
+<body topmargin=3D"0" leftmargin=3D"0" marginheight=3D"0" marginwidth=3D"0"=
+ class=3D"MAINBODY">
+
+<table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" valign=3D"top" heig=
+ht=3D"95%" width=3D"100%">
+<tbody><tr valign=3D"top">
+  <td valign=3D"top">
+     <table border=3D"0" align=3D"left" valign=3D"top" cellpadding=3D"0" ce=
+llspacing=3D"0" width=3D"100%">
+        <tbody><tr>
+           <td class=3D"navcolor" colspan=3D"2" valign=3D"top" align=3D"rig=
+ht"><a><img src=3D"https://qa.si.emea.dsv.com/dashboard/images/en/blue/clos=
+e.gif" border=3D"0" align=3D"bottom"></a>&nbsp;&nbsp;</td>
+        </tr>
+        <tr>
+          <td colspan=3D"2" valign=3D"top" class=3D"navcolor" height=3D"5">=
+<img src=3D"https://qa.si.emea.dsv.com/dashboard/images/plc-holder.gif" hei=
+ght=3D"5"></td>
+        </tr>
+        <tr>
+          <td colspan=3D"2" valign=3D"top" height=3D"5"><img src=3D"https:/=
+/qa.si.emea.dsv.com/dashboard/images/plc-holder.gif" height=3D"5"></td>
+        </tr>
+        <tr>
+          <td align=3D"right" width=3D"23" valign=3D"top" height=3D"3"><img=
+ src=3D"https://qa.si.emea.dsv.com/dashboard/images/blue/smheaderarrow.gif"=
+></td>
+      =20
+          <td width=3D"437" class=3D"smallPageHdr">Import Report</td>
+      =20
+        </tr>
+        <tr>
+         <td colspan=3D"2" valign=3D"top" height=3D"15" width=3D"100%"><img=
+ src=3D"https://qa.si.emea.dsv.com/dashboard/images/plc-holder.gif" height=
+=3D"15" border=3D"0"></td>
+        </tr>
+
+       <tr>
+         <td colspan=3D"2" valign=3D"top" height=3D"15" width=3D"100%"><img=
+ src=3D"https://qa.si.emea.dsv.com/dashboard/images/plc-holder.gif" height=
+=3D"15" border=3D"0"></td>
+        </tr>
+<!-- The PAGE CONTENT -->
+        <tr>
+          <td valign=3D"top" align=3D"left"><img src=3D"https://qa.si.emea.=
+dsv.com/dashboard/images/plc-holder.gif"></td>
+          <td valign=3D"top" align=3D"left"><b><span id=3D"savereportid"></=
+span><br><br></b>
+		    Status report on: 2026-07-30 15:39:38.234 for service: Import<table b=
+order=3D"1"><tbody><tr><td>Object</td><td>Name</td><td>Operation</td><td>St=
+atus</td><td>Message</td></tr><tr><td>PERMISSIONS</td><td>/.mbx</td><td>loa=
+d</td><td>Message</td><td>Successfully imported.</td></tr><tr><td>PERMISSIO=
+NS</td><td>/DSV_ACCOUNTS_mb.mbx</td><td>load</td><td>Message</td><td>Succes=
+sfully imported.</td></tr><tr><td>PERMISSIONS</td><td>/DSV_ACCOUNTS_mb/DSV_=
+CUSTOMERS_mb.mbx</td><td>load</td><td>Message</td><td>Successfully imported=
+.</td></tr><tr><td>PERMISSIONS</td><td>/DSV_ACCOUNTS_mb/DSV_CUSTOMERS_mb/DS=
+V_cus.jpmbl_mb.mbx</td><td>load</td><td>Message</td><td>Successfully import=
+ed.</td></tr><tr><td>PERMISSIONS</td><td>/DSV_ACCOUNTS_mb/DSV_CUSTOMERS_mb/=
+DSV_cus.jpmbl_mb/inbox.mbx</td><td>load</td><td>Message</td><td>Successfull=
+y imported.</td></tr><tr><td>PERMISSIONS</td><td>/DSV_ACCOUNTS_mb/DSV_CUSTO=
+MERS_mb/DSV_cus.jpmbl_mb/outbox.mbx</td><td>load</td><td>Message</td><td>Su=
+ccessfully imported.</td></tr><tr><td>PERMISSIONS</td><td>PLTADM30</td><td>=
+load</td><td>Message</td><td>Successfully imported.</td></tr><tr><td>PERMIS=
+SIONS</td><td>WebAppAdminPermission</td><td>load</td><td>Message</td><td>Su=
+ccessfully imported.</td></tr><tr><td>GROUPS</td><td>Mailbox Administrators=
+</td><td>load</td><td>Message</td><td>Group not added. Since it already exi=
+sts and marked restricted.</td></tr><tr><td>GROUPS</td><td>Sterling B2B Int=
+egrator Admin</td><td>load</td><td>Message</td><td>Group not added. Since i=
+t already exists and marked restricted.</td></tr><tr><td>XSLT Template</td>=
+<td>DSV_XS_JP-MBL_XML_Id_xsl</td><td>load</td><td>Message</td><td>Successfu=
+lly imported.</td></tr><tr><td>USERS</td><td>1740673331233</td><td>load</td=
+><td>Message</td><td>Could not find Organization Key for Entity_Id: Entity =
+findEntityAttrByColumn: No matches found where  OBJECT_ID =3D 1740673331233=
+</td></tr><tr><td>SSHUSERKEY</td><td>SSH_cus.jpmbl_auk</td><td>load</td><td=
+>Message</td><td>Key SSH_cus.jpmbl_auk exists.</td></tr><tr><td>USERS</td><=
+td>cus.jpmbl</td><td>load</td><td>Message</td><td>Successfully imported.</t=
+d></tr><tr><td>USERXPERMS</td><td>USER_ID:cus.jpmbl-PERMISSION_ID:/DSV_ACCO=
+UNTS_mb/DSV_CUSTOMERS_mb/DSV_cus.jpmbl_mb.mbx</td><td>load</td><td>Message<=
+/td><td>Successfully imported.</td></tr><tr><td>USERXPERMS</td><td>USER_ID:=
+cus.jpmbl-PERMISSION_ID:/DSV_ACCOUNTS_mb/DSV_CUSTOMERS_mb/DSV_cus.jpmbl_mb/=
+inbox.mbx</td><td>load</td><td>Message</td><td>Successfully imported.</td><=
+/tr><tr><td>USERXPERMS</td><td>USER_ID:cus.jpmbl-PERMISSION_ID:/DSV_ACCOUNT=
+S_mb/DSV_CUSTOMERS_mb/DSV_cus.jpmbl_mb/outbox.mbx</td><td>load</td><td>Mess=
+age</td><td>Successfully imported.</td></tr><tr><td>USERXPERMS</td><td>USER=
+_ID:cus.jpmbl-PERMISSION_ID:PLTADM30</td><td>load</td><td>Message</td><td>S=
+uccessfully imported.</td></tr><tr><td>USERXPERMS</td><td>USER_ID:cus.jpmbl=
+-PERMISSION_ID:WebAppAdminPermission</td><td>load</td><td>Message</td><td>S=
+uccessfully imported.</td></tr><tr><td>SSH Authorized User Key</td><td>SSH_=
+cus.jpmbl_auk (si-b2bi-asi-server-0:node1:19f46d107bf:25783517)</td><td>N/A=
+</td><td>SUCCESS</td><td>Resource successfully imported.</td></tr><tr><td>U=
+SER~PERMISSION</td><td>admin~/DSV_ACCOUNTS_mb.mbx</td><td>load</td><td>Mess=
+age</td><td>Permission successfully added to the user.</td></tr><tr><td>GRO=
+UP~PERMISSION</td><td>super~/DSV_ACCOUNTS_mb.mbx</td><td>load</td><td>Messa=
+ge</td><td>Permission successfully added to the group.</td></tr><tr><td>GRO=
+UP~PERMISSION</td><td>mboxadmins~/DSV_ACCOUNTS_mb.mbx</td><td>load</td><td>=
+Message</td><td>Permission successfully added to the group.</td></tr><tr><t=
+d>USER~PERMISSION</td><td>admin~/DSV_ACCOUNTS_mb/DSV_CUSTOMERS_mb.mbx</td><=
+td>load</td><td>Message</td><td>Permission successfully added to the user.<=
+/td></tr><tr><td>GROUP~PERMISSION</td><td>super~/DSV_ACCOUNTS_mb/DSV_CUSTOM=
+ERS_mb.mbx</td><td>load</td><td>Message</td><td>Permission successfully add=
+ed to the group.</td></tr><tr><td>GROUP~PERMISSION</td><td>mboxadmins~/DSV_=
+ACCOUNTS_mb/DSV_CUSTOMERS_mb.mbx</td><td>load</td><td>Message</td><td>Permi=
+ssion successfully added to the group.</td></tr><tr><td>USER~PERMISSION</td=
+><td>cus.jpmbl~/DSV_ACCOUNTS_mb/DSV_CUSTOMERS_mb/DSV_cus.jpmbl_mb.mbx</td><=
+td>load</td><td>Message</td><td>Permission successfully added to the user.<=
+/td></tr><tr><td>GROUP~PERMISSION</td><td>mboxadmins~/DSV_ACCOUNTS_mb/DSV_C=
+USTOMERS_mb/DSV_cus.jpmbl_mb.mbx</td><td>load</td><td>Message</td><td>Permi=
+ssion successfully added to the group.</td></tr><tr><td>MBXMETA</td><td>/DS=
+V_ACCOUNTS_mb/DSV_CUSTOMERS_mb/DSV_cus.jpmbl_mb</td><td>load</td><td>Messag=
+e</td><td>Successfully imported.</td></tr><tr><td>USER~PERMISSION</td><td>c=
+us.jpmbl~/DSV_ACCOUNTS_mb/DSV_CUSTOMERS_mb/DSV_cus.jpmbl_mb/inbox.mbx</td><=
+td>load</td><td>Message</td><td>Permission successfully added to the user.<=
+/td></tr><tr><td>GROUP~PERMISSION</td><td>mboxadmins~/DSV_ACCOUNTS_mb/DSV_C=
+USTOMERS_mb/DSV_cus.jpmbl_mb/inbox.mbx</td><td>load</td><td>Message</td><td=
+>Permission successfully added to the group.</td></tr><tr><td>MBXMETA</td><=
+td>/DSV_ACCOUNTS_mb/DSV_CUSTOMERS_mb/DSV_cus.jpmbl_mb/inbox</td><td>load</t=
+d><td>Message</td><td>Successfully imported.</td></tr><tr><td>USER~PERMISSI=
+ON</td><td>cus.jpmbl~/DSV_ACCOUNTS_mb/DSV_CUSTOMERS_mb/DSV_cus.jpmbl_mb/out=
+box.mbx</td><td>load</td><td>Message</td><td>Permission successfully added =
+to the user.</td></tr><tr><td>GROUP~PERMISSION</td><td>mboxadmins~/DSV_ACCO=
+UNTS_mb/DSV_CUSTOMERS_mb/DSV_cus.jpmbl_mb/outbox.mbx</td><td>load</td><td>M=
+essage</td><td>Permission successfully added to the group.</td></tr><tr><td=
+>MBXMETA</td><td>/DSV_ACCOUNTS_mb/DSV_CUSTOMERS_mb/DSV_cus.jpmbl_mb/outbox<=
+/td><td>load</td><td>Message</td><td>Successfully imported.</td></tr><tr><t=
+d>MBXVIRTUAL</td><td>cus.jpmbl</td><td>load</td><td>Message</td><td>Success=
+fully imported.</td></tr><tr><td>Code List</td><td>[DSV_CL_RECEIVE_ENCODING=
+_JP-MBL_cl][ ][ ]</td><td>update</td><td>SUCCESS</td><td>Created version - =
+5</td></tr><tr><td>Code List</td><td>[DSV_CL_RECEIVE_ENCODING_JP-MBL_cl][ ]=
+[ ]</td><td>update default version</td><td>Message</td><td>Set default vers=
+ion to v5</td></tr><tr><td>Code List</td><td>[DSV_CL_SEND_ENCODING_JP-MBL_c=
+l][ ][ ]</td><td>update</td><td>SUCCESS</td><td>Created version - 5</td></t=
+r><tr><td>Code List</td><td>[DSV_CL_SEND_ENCODING_JP-MBL_cl][ ][ ]</td><td>=
+update default version</td><td>Message</td><td>Set default version to v5</t=
+d></tr><tr><td>MBXROUTING</td><td>DSV_cus.jpmbl_rr</td><td>load</td><td>Mes=
+sage</td><td>Successfully imported.</td></tr></tbody></table>End of report
+         </td>
+       </tr>
+
+   </tbody></table>
+
+<!-- end of main table -->
+ </td>
+</tr>
+</tbody></table>
+
+<!-- footer -->
+<table cellpadding=3D"0" cellspacing=3D"0" width=3D"100%" border=3D"0" vali=
+gn=3D"bottom" class=3D"navcolor" height=3D"5%">
+  <tbody><tr valign=3D"top">
+     <td valign=3D"middle" align=3D"left" class=3D"copyright">
+         &nbsp;&nbsp;=C2=A9 Copyright IBM Corp. 2000, 2023 All Rights Reser=
+ved.&nbsp;&nbsp;
+     </td>
+  </tr>
+</tbody></table>
+
+
+</body></html>
+------MultipartBoundary--mkpXaGU65J8KcaMZGbn1g3tn4l0AOQigEpoozBdvH9----
+Content-Type: image/gif
+Content-Transfer-Encoding: base64
+Content-Location: https://qa.si.emea.dsv.com/dashboard/images/blue/smheaderarrow.gif
+
+R0lGODlhFwASAKIAAAAAAP///+rq6sPDw////wAAAAAAAAAAACH5BAEAAAQALAAAAAAXABIAQAMl
+GLrc/m/ICeuoeMmM5+ZgGHgi41EiWq7QxWofe8qnG9YrSb9gAgA7
+
+------MultipartBoundary--mkpXaGU65J8KcaMZGbn1g3tn4l0AOQigEpoozBdvH9----
+Content-Type: image/gif
+Content-Transfer-Encoding: base64
+Content-Location: https://qa.si.emea.dsv.com/dashboard/images/plc-holder.gif
+
+R0lGODlhAgACAJH/AP///wAAAMDAwAAAACH5BAEAAAIALAAAAAACAAIAAAIClFUAOw==
+
+------MultipartBoundary--mkpXaGU65J8KcaMZGbn1g3tn4l0AOQigEpoozBdvH9----
+Content-Type: image/gif
+Content-Transfer-Encoding: base64
+Content-Location: https://qa.si.emea.dsv.com/dashboard/images/en/blue/close.gif
+
+R0lGODlhLwANAMQAAP//////AP8A//8AAAD//wD/AAAA/wAAAHWR3X6Y34ef4bTD677L7sfS8NDZ
+8tng9OLn9pCn45mu5aK156u86evv+PT2+v39/P///wAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAEA
+ABgALAAAAAAvAA0AAAWdICKOZGmeaKqubOu+cCzPpbJQK7UopHTTIodlWOFZFqTJcPhAJCrLouNC
+pTpYDsiIYUkcRwsLL1hxNEWM8vWlsEx6iK8IwiB5ww1ccO2KXCImcnFIJEcLUBYQEkJLFnopXm8j
+FG2ECHR2R2MIDRYPfC5ZYGKCSpIIDhUPWiJKDqAtCg+Nb40WDGFLDwqyjQuMS6wsNo8oOpsINpYt
+IQA7
+
+------MultipartBoundary--mkpXaGU65J8KcaMZGbn1g3tn4l0AOQigEpoozBdvH9----
+Content-Type: text/css
+Content-Transfer-Encoding: quoted-printable
+Content-Location: https://qa.si.emea.dsv.com/dashboard/css/blue/admin.css
+
+@charset "utf-8";
+
+.BPMonitorDetailDesc { color: rgb(102, 102, 102); font-family: Arial, Tahom=
+a, Verdana; font-size: 12px; font-weight: normal; }
+
+.BPMonitorDetailDescLabel { color: rgb(102, 102, 102); font-family: Arial, =
+Tahoma, Verdana; font-size: 12px; font-weight: bold; }
+
+.BlockBg { background-color: white; }
+
+.BlockBorder { background-color: rgb(0, 0, 153); }
+
+.BlockData { color: black; font-family: Arial, Tahoma, Verdana; font-size: =
+12px; }
+
+.BlockTitle { color: black; font-family: Arial, Tahoma, Verdana; font-size:=
+ 12px; font-weight: bold; }
+
+.DocCount { background-color: rgb(240, 239, 231); color: rgb(102, 102, 102)=
+; font-family: Arial, Tahoma, Verdana; font-size: 11px; }
+
+.Instructions { color: rgb(102, 102, 102); font-family: Arial, verdana; fon=
+t-size: 12px; }
+
+.PageTitle { color: black; font-family: Arial, Tahoma, Verdana; font-size: =
+18px; font-weight: bold; }
+
+.SMALLBODY { background-color: rgb(255, 255, 255); color: rgb(52, 68, 77); =
+font-family: Arial, Tahoma, Verdana; font-size: 12px; }
+
+.SearchDisabledInputText { color: rgb(153, 153, 153); font-family: Arial, T=
+ahoma, Verdana; font-size: 12px; font-weight: normal; }
+
+.WELCOME { font-size: 12px; font-weight: 900; }
+
+.WFCColorRow { background-color: rgb(222, 222, 222); color: black; font-siz=
+e: 12px; font-weight: normal; }
+
+.WFCHeader { background-color: rgb(153, 153, 204); color: white; font-size:=
+ 12px; font-weight: bold; }
+
+.WFCWhiteRow { background-color: white; color: black; font-size: 12px; font=
+-weight: normal; }
+
+.WFMonitorDetailHdr { color: rgb(102, 102, 102); font-family: Arial, Tahoma=
+, Verdana; font-size: 13px; font-weight: bold; }
+
+.WFMonitorSelectMenuItem { background-color: white; color: rgb(102, 102, 10=
+2); font-family: Arial, Tahoma, Verdana; font-size: 11px; font-weight: norm=
+al; vertical-align: top; }
+
+.WizardAccountsIndicationText { color: rgb(84, 117, 160); font-family: Aria=
+l, Tahoma, Verdana; font-size: 12px; }
+
+.WizardAccountsText { color: rgb(84, 117, 160); font-family: Arial, Tahoma,=
+ Verdana; font-size: 12px; font-weight: bold; }
+
+.WizardDeploymentText { color: rgb(84, 117, 160); font-family: Arial, Tahom=
+a, Verdana; font-size: 12px; font-weight: bold; }
+
+.WizardeInvoicesText { color: rgb(84, 117, 160); font-family: Arial, Tahoma=
+, Verdana; font-size: 12px; font-weight: bold; }
+
+.WizardDisabledInputText { color: rgb(153, 153, 153); font-family: Arial, T=
+ahoma, Verdana; font-size: 12px; font-weight: normal; }
+
+.WizardInputData { color: rgb(52, 68, 77); font-family: "Courier New"; font=
+-size: 12px; font-weight: normal; }
+
+.WizardInputRadio { color: rgb(102, 102, 102); font-family: Arial, Tahoma, =
+Verdana; font-size: 12px; font-weight: normal; }
+
+.WizardInputTextArea { color: rgb(0, 0, 0); font-family: sans-serif; font-s=
+ize: 13px; font-weight: normal; }
+
+.WizardInputText { color: rgb(102, 102, 102); font-family: Arial, Tahoma, V=
+erdana; font-size: 12px; font-weight: bold; }
+
+.WizardInputTextBlue { color: rgb(84, 117, 160); font-family: Arial, Tahoma=
+, Verdana; font-size: 12px; font-weight: bold; }
+
+.WizardInstructions { color: rgb(102, 102, 102); font-family: Arial, Tahoma=
+, Verdana; font-size: 12px; font-weight: normal; }
+
+.WizardOperationsText { color: rgb(84, 117, 160); font-family: Arial, Tahom=
+a, Verdana; font-size: 12px; font-weight: bold; }
+
+.WizardStaticData { color: rgb(52, 68, 77); font-family: Arial, Tahoma, Ver=
+dana; font-size: 12px; font-weight: normal; }
+
+.WizardTblHdr { color: rgb(84, 117, 160); font-family: Arial, Tahoma, Verda=
+na; font-size: 12px; font-weight: bold; }
+
+.WizardTitle { color: rgb(81, 81, 81); font-family: Arial, Tahoma, Verdana;=
+ font-size: 15px; font-weight: bold; }
+
+.WizardTradingProfilesText { color: rgb(84, 117, 160); font-family: Arial, =
+Tahoma, Verdana; font-size: 12px; font-weight: bold; }
+
+.WizardWorkflowsText { color: rgb(84, 117, 160); font-family: Arial, Tahoma=
+, Verdana; font-size: 12px; font-weight: bold; }
+
+.WorkflowLink { color: black; font-family: Arial, Tahoma, Verdana; font-siz=
+e: 12px; font-style: normal; font-weight: normal; }
+
+.bodyspacer { background-color: white; }
+
+.box { border-color: rgb(186, 185, 187); border-style: solid; border-width:=
+ 1px; }
+
+.bullet { color: rgb(52, 68, 77); font-family: Arial, Tahoma, Verdana; font=
+-size: 12px; font-weight: bold; text-decoration: none; vertical-align: top;=
+ }
+
+.calCurrentDay { background-color: rgb(148, 176, 247); }
+
+.calWeekRow { white-space: nowrap; background-color: rgb(148, 176, 247); }
+
+.calWeekday { background-color: rgb(255, 255, 255); }
+
+.calWeekend { background-color: rgb(255, 255, 255); }
+
+.calYearRow { background-color: rgb(117, 145, 221); }
+
+.copyright { font-family: Arial, sans-serif; font-size: 11px; }
+
+.dbPoolUsageChartText { color: black; font-family: Arial, Tahoma, Verdana; =
+font-size: 10px; font-weight: normal; }
+
+.editSelection { background-color: white; color: rgb(102, 102, 102); font-f=
+amily: Arial, Tahoma, Verdana; font-size: 12px; font-weight: normal; vertic=
+al-align: middle; }
+
+.grayEditSelection { background-color: rgb(238, 238, 238); color: rgb(102, =
+102, 102); font-family: Arial, Tahoma, Verdana; font-size: 12px; font-weigh=
+t: normal; vertical-align: middle; }
+
+.grayStripe { background-color: rgb(238, 238, 238); color: rgb(102, 102, 10=
+2); font-family: Arial, Tahoma, Verdana; font-size: 12px; font-weight: norm=
+al; vertical-align: top; }
+
+.grayStripeDisable { background-color: rgb(238, 238, 238); color: rgb(204, =
+204, 204); font-family: Arial, Tahoma, Verdana; font-size: 12px; font-weigh=
+t: normal; vertical-align: top; }
+
+.hdrSep { background-color: rgb(233, 233, 233); }
+
+.hpPlease { color: rgb(102, 102, 102); font-family: Verdana, Arial, Tahoma;=
+ font-size: 13px; font-weight: bold; }
+
+.hpcolor { background-color: rgb(49, 65, 74); }
+
+.hpcopyright { color: rgb(102, 102, 102); font-family: Arial, Tahoma, Verda=
+na; font-size: 9px; }
+
+.hpcopyrightNS { color: rgb(102, 102, 102); font-family: Arial, Tahoma, Ver=
+dana; font-size: 9px; font-weight: bold; }
+
+.hptradesecret { color: rgb(102, 102, 102); font-family: Verdana, Arial, Ta=
+homa; font-size: 9px; }
+
+.hptradesecretNS { color: rgb(102, 102, 102); font-family: Verdana, Arial, =
+Tahoma; font-size: 9px; }
+
+.info { color: rgb(102, 102, 102); font-family: Arial, Tahoma, Verdana; fon=
+t-size: 11px; text-decoration: none; }
+
+.inputStyle { background-color: rgb(255, 255, 255); border-color: rgb(102, =
+102, 102); border-style: solid; border-width: 1px; color: rgb(0, 0, 0); fon=
+t: 11px / 1 Verdana, Arial, Helvetica, sans-serif; }
+
+.inputStyleLite { background-color: rgb(255, 255, 255); border-width: mediu=
+m; border-style: none; border-color: rgb(192, 192, 192); color: rgb(0, 0, 0=
+); font-family: Verdana, Arial; font-weight: normal; }
+
+.jumpbar { color: rgb(102, 102, 102); font-family: Arial, Tahoma, Verdana; =
+font-size: 10px; }
+
+.login { background-color: rgb(212, 208, 200); border-color: rgb(102, 102, =
+102); border-style: solid; border-width: 1px; color: rgb(0, 0, 0); font-fam=
+ily: Verdana, Arial, Tahoma; font-weight: bolder; }
+
+.loginError { color: rgb(110, 38, 38); font-family: Verdana, Geneva, Arial,=
+ Tahoma; font-size: 11px; }
+
+.ltspacer { background-color: rgb(117, 145, 221); }
+
+.navLabel { color: rgb(102, 102, 102); font-family: Arial, Verdana; font-si=
+ze: 12px; font-weight: bold; text-decoration: none; }
+
+.navLabelSelected { color: rgb(81, 81, 81); font-family: Arial, Verdana; fo=
+nt-size: 12px; font-weight: bold; text-decoration: none; }
+
+.navhdr { background-color: rgb(111, 141, 217); background-image: url("/das=
+hboard/images/SI_header.gif"); background-repeat: no-repeat; }
+
+.navhdrCE { background-color: rgb(111, 141, 217); background-image: url("/d=
+ashboard/images/Connect_header_green_colon.gif"); background-repeat: no-rep=
+eat; }
+
+.navhdrG { background-color: rgb(238, 238, 238); background-image: url("/da=
+shboard/images/topbar_sub.gif"); background-repeat: no-repeat; }
+
+.navhdrGM { background-color: rgb(111, 141, 217); background-image: url("/d=
+ashboard/images/Gentran_header2.gif"); background-repeat: no-repeat; }
+
+.navlinkfont { color: rgb(102, 102, 102); font-family: Arial, Verdana; font=
+-size: 11px; line-height: 12px; text-decoration: none; }
+
+.navselected { color: rgb(81, 81, 81); font-family: Arial, Verdana; font-si=
+ze: 11px; font-weight: bold; line-height: 12px; text-decoration: none; }
+
+.navspacer { font-family: Arial; font-size: 15px; line-height: 12px; text-i=
+ndent: 2px; }
+
+.navtable { }
+
+.noshow { display: none; }
+
+.notice { color: rgb(102, 102, 102); font-family: Verdana, Arial, Tahoma; f=
+ont-size: 12px; text-decoration: none; }
+
+.onAction { color: rgb(102, 102, 102); font-family: Arial, Tahoma, Verdana;=
+ font-size: 12px; font-weight: bold; text-decoration: none; }
+
+.opsServices { color: rgb(102, 102, 102); font-family: Arial, sans-serif; f=
+ont-size: 12px; font-weight: normal; }
+
+.opsTblHdr { background-color: rgb(117, 145, 221); color: white; font-famil=
+y: Arial, Verdana; font-size: 12px; font-weight: bold; }
+
+.opsTime { color: white; font-family: Arial, verdana; font-size: 11px; }
+
+.opsTitle { color: rgb(81, 81, 81); font-family: Arial, sans-serif; font-si=
+ze: 14px; font-weight: bold; }
+
+.searchNavHdr { background-color: rgb(255, 255, 255); color: rgb(102, 102, =
+102); font-family: Arial; font-size: 11px; font-weight: normal; }
+
+.smallPageHdr { color: rgb(89, 89, 89); font-family: Arial, Tahoma, Verdana=
+; font-size: 16px; font-weight: bold; }
+
+.tblHdr { background-color: rgb(117, 145, 221); color: rgb(84, 117, 160); f=
+ont-family: Arial, Verdana; font-size: 12px; font-weight: bold; }
+
+.whiteStripe { background-color: rgb(255, 255, 255); color: rgb(102, 102, 1=
+02); font-family: Arial, Tahoma, Verdana; font-size: 12px; font-weight: nor=
+mal; vertical-align: top; }
+
+.whitespacer { background-color: white; }
+
+.wiznavlinespacer { font-family: Arial; font-size: 1px; line-height: 1px; }
+
+.wizspacer { font-size: 4px; text-indent: 2px; }
+
+a.NavLink { color: rgb(102, 102, 102); font-family: Arial, Verdana; font-si=
+ze: 11px; text-decoration: none; vertical-align: bottom; }
+
+a.WFLink { color: white; font-family: Arial, Tahoma, Verdana; font-size: 11=
+px; text-decoration: underline; }
+
+a.WizChoice { font-family: Arial, Tahoma, Verdana; font-size: 11px; text-de=
+coration: underline; }
+
+a.actionLink { color: rgb(102, 102, 102); font-family: Arial, Tahoma, Verda=
+na; font-size: 12px; text-decoration: none; }
+
+a.activeTop { color: black; font-family: Arial, Tahoma, Verdana; font-size:=
+ 12px; font-weight: bold; text-decoration: none; }
+
+a.bottom { color: black; font-family: Arial, Tahoma, Verdana; font-size: 12=
+px; text-decoration: none; }
+
+a.copyrightLink { color: rgb(233, 233, 233); font-family: Arial, Tahoma, Ve=
+rdana; font-size: 11px; font-weight: bold; text-decoration: underline; }
+
+a.hpInputsH { color: rgb(233, 233, 233); font-family: Arial, Tahoma, Verdan=
+a; font-size: 12px; font-style: normal; text-decoration: underline; }
+
+a.navLabelLink { color: rgb(102, 102, 102); font-family: Arial, Verdana; fo=
+nt-size: 12px; font-weight: bold; text-decoration: none; vertical-align: bo=
+ttom; }
+
+a.opsLink { color: rgb(180, 76, 76); font-family: Arial, sans-serif; font-s=
+ize: 11px; font-weight: bold; vertical-align: bottom; }
+
+a.opsSmallLink { color: rgb(161, 165, 223); font-family: Arial, verdana; fo=
+nt-size: 11px; font-weight: bold; vertical-align: bottom; }
+
+a.passiveTop { color: white; font-family: Arial, Tahoma, Verdana; font-size=
+: 12px; text-decoration: none; }
+
+a.selectResource { color: rgb(102, 102, 102); font-family: Arial, verdana; =
+font-size: 12px; vertical-align: bottom; }
+
+a.sitemaplink { color: rgb(102, 102, 102); font-family: Arial, Tahoma, Verd=
+ana; font-size: 11px; font-style: normal; text-decoration: underline; }
+
+a.titleLink { color: rgb(161, 165, 223); font-family: Arial, Tahoma, Verdan=
+a; font-size: 11px; text-decoration: underline; }
+
+a:link { color: rgb(102, 102, 102); font-family: Arial, Tahoma, Verdana; te=
+xt-decoration: underline; vertical-align: bottom; }
+
+a:visited { color: rgb(102, 102, 102); font-family: Arial, Tahoma, Verdana;=
+ text-decoration: underline; vertical-align: bottom; }
+
+a:visited.NavLink { color: rgb(102, 102, 102); font-family: Arial, Verdana;=
+ font-size: 11px; text-decoration: none; vertical-align: bottom; }
+
+a:visited.WFLink { color: white; font-family: Arial, Tahoma, Verdana; font-=
+size: 11px; text-decoration: underline; }
+
+a:visited.WizChoice { font-family: Arial, Tahoma, Verdana; font-size: 11px;=
+ text-decoration: underline; }
+
+a:visited.actionLink { color: rgb(102, 102, 102); font-family: Arial, Tahom=
+a, Verdana; font-size: 12px; text-decoration: none; }
+
+a:visited.activeTop { color: black; font-family: Arial, Tahoma, Verdana; fo=
+nt-size: 12px; font-weight: bold; text-decoration: none; }
+
+a:visited.bottom { color: black; font-family: Arial, Tahoma, Verdana; font-=
+size: 12px; text-decoration: none; }
+
+a:visited.copyrightLink { color: rgb(233, 233, 233); font-family: Arial, Ta=
+homa, Verdana; font-size: 11px; font-style: normal; text-decoration: underl=
+ine; }
+
+a:visited.hpInputsH { color: rgb(233, 233, 233); font-family: Arial, Tahoma=
+, Verdana; font-size: 12px; font-style: normal; text-decoration: underline;=
+ }
+
+a:visited.navLabelLink { color: rgb(102, 102, 102); font-family: Arial, Ver=
+dana; font-size: 12px; text-decoration: none; vertical-align: bottom; }
+
+a:visited.opsLink { color: rgb(151, 24, 24); font-family: Arial, verdana; f=
+ont-size: 11px; font-weight: bold; vertical-align: bottom; }
+
+a:visited.opsSmallLink { color: rgb(161, 165, 223); font-family: Arial, ver=
+dana; font-size: 11px; font-weight: bold; vertical-align: bottom; }
+
+a:visited.passiveTop { color: white; font-family: Arial, Tahoma, Verdana; f=
+ont-size: 12px; text-decoration: none; }
+
+a:visited.selectResource { color: rgb(102, 102, 102); font-family: Arial, v=
+erdana; font-size: 12px; vertical-align: bottom; }
+
+a:visited.sitemaplink { color: rgb(128, 0, 128); font-family: Arial, Tahoma=
+, Verdana; font-size: 11px; vertical-align: bottom; text-decoration: underl=
+ine; }
+
+a:visited.titleLink { color: rgb(161, 165, 223); font-family: Arial, Tahoma=
+, Verdana; font-size: 11px; text-decoration: underline; }
+
+a:hover.NavLink { color: rgb(81, 81, 81); font-family: Arial, Verdana; font=
+-size: 11px; font-weight: bold; text-decoration: none; }
+
+a:hover.actionLink { color: rgb(102, 102, 102); font-family: Arial, Tahoma,=
+ Verdana; font-size: 12px; text-decoration: underline; }
+
+a:hover.copyrightLink { color: rgb(233, 233, 233); font-family: Arial, Taho=
+ma, Verdana; font-size: 11px; font-style: normal; text-decoration: underlin=
+e; }
+
+a:hover.hpInputsH { color: rgb(233, 233, 233); font-family: Arial, Tahoma, =
+Verdana; font-size: 12px; font-style: normal; text-decoration: underline; }
+
+a:hover.navLabelLink { color: rgb(81, 81, 81); font-family: Arial, Verdana;=
+ font-size: 12px; text-decoration: none; vertical-align: bottom; }
+
+a:hover.sitemaplink { color: rgb(52, 68, 77); font-family: Arial, Tahoma, V=
+erdana; font-size: 11px; font-weight: bold; text-decoration: none; text-tra=
+nsform: none; vertical-align: bottom; }
+
+a:active { color: rgb(102, 102, 102); font-family: Arial, Tahoma, Verdana; =
+text-decoration: underline; vertical-align: bottom; }
+
+a:active.NavLink { color: rgb(81, 81, 81); font-family: Arial, Verdana; fon=
+t-size: 11px; text-decoration: none; vertical-align: bottom; }
+
+a:active.WFLink { color: white; font-family: Arial, Tahoma, Verdana; font-s=
+ize: 11px; text-decoration: underline; }
+
+a:active.WizChoice { font-family: Arial, Verdana; font-size: 11px; text-dec=
+oration: underline; }
+
+a:active.actionLink { color: rgb(102, 102, 102); font-family: Arial, Tahoma=
+, Verdana; font-size: 12px; text-decoration: none; }
+
+a:active.activeTop { color: black; font-family: Arial, Tahoma, Verdana; fon=
+t-size: 12px; font-weight: bold; text-decoration: none; }
+
+a:active.bottom { color: black; font-family: Arial, Tahoma, Verdana; font-s=
+ize: 12px; text-decoration: none; }
+
+a:active.copyrightLink { color: rgb(233, 233, 233); font-family: Arial, Tah=
+oma, Verdana; font-size: 11px; font-style: normal; text-decoration: underli=
+ne; }
+
+a:active.hpInputsH { color: rgb(233, 233, 233); font-family: Arial, Tahoma,=
+ Verdana; font-size: 12px; font-style: normal; text-decoration: underline; =
+}
+
+a:active.navLabelLink { color: rgb(81, 81, 81); font-family: Arial, Verdana=
+; font-size: 12px; text-decoration: none; vertical-align: bottom; }
+
+a:active.opsLink { color: rgb(151, 24, 24); font-family: Arial, verdana; fo=
+nt-size: 11px; font-weight: bold; vertical-align: bottom; }
+
+a:active.opsSmallLink { color: rgb(84, 117, 160); font-family: Arial, verda=
+na; font-size: 11px; font-weight: bold; vertical-align: bottom; }
+
+a:active.passiveTop { color: white; font-family: Arial, Tahoma, Verdana; fo=
+nt-size: 12px; text-decoration: none; }
+
+a:active.selectResource { color: rgb(102, 102, 102); font-family: Arial, Ta=
+homa, Verdana; font-size: 12px; vertical-align: bottom; }
+
+a:active.sitemaplink { color: rgb(52, 68, 77); font-family: Arial, Tahoma, =
+Verdana; font-size: 11px; text-decoration: none; vertical-align: bottom; }
+
+a:active.titleLink { color: rgb(161, 165, 223); font-family: Arial, Tahoma,=
+ Verdana; font-size: 11px; text-decoration: underline; }
+
+td.inline { background-color: rgb(203, 203, 203); color: black; font-weight=
+: normal; }
+
+tr.inline { background-color: rgb(203, 203, 203); color: black; font-weight=
+: normal; }
+
+a.WhiteNavLink { font-family: Helvetica, Verdana, Arial, sans-serif; font-s=
+ize: 11px; text-decoration: none; color: rgb(214, 243, 255); vertical-align=
+: bottom; }
+
+a:visited.WhiteNavLink { font-family: Helvetica, Verdana, Arial, sans-serif=
+; font-size: 11px; text-decoration: none; color: rgb(214, 243, 255); vertic=
+al-align: bottom; }
+
+a:active.WhiteNavLink { font-family: Helvetica, Verdana, Arial, sans-serif;=
+ font-size: 11px; text-decoration: none; color: rgb(81, 81, 81); vertical-a=
+lign: bottom; }
+
+a:hover.WhiteNavLink { font-family: Helvetica, Verdana, Arial, sans-serif; =
+font-size: 11px; text-decoration: none; color: rgb(81, 81, 81); font-weight=
+: bold; }
+
+#xboxLogin { background: transparent; width: 200px; }
+
+.xtop, .xbottom { display: block; background: transparent; font-size: 1px; =
+}
+
+.xb1, .xb2, .xb3, .xb4, .xb5 { display: block; overflow: hidden; }
+
+.xb1, .xb2, .xb3, .xb4 { height: 1px; }
+
+.xb1 { margin: 0px 6px; }
+
+.wowGroupTable { border-width: 1px; border-style: solid; border-color: rgb(=
+117, 145, 221); border-collapse: collapse; }
+
+.wowGroupTitle { color: rgb(81, 81, 81); font-family: Arial, Tahoma, Verdan=
+a; font-size: 12px; font-weight: 600; font-style: italic; }
+
+.wowGroupTable { border-width: 1px; border-style: solid; border-color: rgb(=
+117, 145, 221); border-collapse: collapse; }
+
+.wowGroupTitle { color: rgb(81, 81, 81); font-family: Arial, Tahoma, Verdan=
+a; font-size: 12px; font-weight: 600; font-style: italic; }
+
+.MAINbody { background-color: rgb(255, 255, 255); font-family: Arial; font-=
+size: 12px; }
+
+.PageHdr { color: rgb(89, 89, 89); font-family: Arial, Tahoma, Verdana; fon=
+t-size: 20px; font-weight: bold; }
+
+.hpInputs { color: rgb(102, 102, 102); font-family: Verdana, Arial, Helveti=
+ca, sans-serif; font-size: 11px; }
+
+.navcolor { background-color: rgb(59, 108, 54); }
+
+.opsLabel { color: rgb(102, 102, 102); font-family: Verdana, Arial, Helveti=
+ca, sans-serif; font-size: 12px; font-weight: bold; }
+
+.opsText { color: rgb(102, 102, 102); font-family: Verdana, Arial, Helvetic=
+a, sans-serif; font-size: 12px; font-weight: normal; }
+
+.tblBorder { background-color: rgb(59, 108, 54); }
+
+.whiteTblHdr { background-color: rgb(59, 108, 54); color: rgb(255, 255, 255=
+); font-family: Arial; font-size: 12px; font-weight: bold; }
+
+td { color: rgb(102, 102, 102); font-family: Helvetica, Verdana, Arial, san=
+s-serif; font-size: 12px; }
+
+.loginForm { background-color: rgb(193, 214, 235); font-family: Verdana, Ar=
+ial, Helvetica, sans-serif; font-size: 11px; font-weight: normal; color: rg=
+b(0, 0, 0); }
+
+.xb2 { margin: 0px 4px; background-color: rgb(193, 214, 235); }
+
+.xb3 { margin: 0px 2px; background-color: rgb(193, 214, 235); }
+
+.xb4 { margin: 0px 1px; background-color: rgb(193, 214, 235); }
+
+.xb5 { height: 1px; margin: 0px 1px; background-color: rgb(193, 214, 235); =
+}
+
+.xboxLoginContent { display: block; background-color: rgb(193, 214, 235); }
+------MultipartBoundary--mkpXaGU65J8KcaMZGbn1g3tn4l0AOQigEpoozBdvH9------

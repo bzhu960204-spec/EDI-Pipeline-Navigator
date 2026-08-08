@@ -1,0 +1,45 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:h2:file:./data/edinav;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  servlet:
+    multipart:
+      max-file-size: 512MB
+      max-request-size: 512MB
+  devtools:
+    restart:
+      enabled: true
+      # Wait for compilation to settle before restarting to avoid mid-build reloads.
+      poll-interval: 2s
+      quiet-period: 1s
+    livereload:
+      enabled: true
+
+app:
+  jwt:
+    # Base64-friendly secret; override in production via env EDINAV_JWT_SECRET
+    secret: ${EDINAV_JWT_SECRET:ZGV2LXNlY3JldC1jaGFuZ2UtbWUtZWRpLXBpcGVsaW5lLW5hdmlnYXRvci0yMDI2LXNlY3VyZQ==}
+    expiration-ms: 86400000
+  admin:
+    username: ${EDINAV_ADMIN_USER:admin}
+    password: ${EDINAV_ADMIN_PASSWORD:admin123}
+  storage:
+    root: ./data/artifacts
+  cors:
+    allowed-origins: http://localhost:5173

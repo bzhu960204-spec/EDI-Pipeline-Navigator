@@ -1,0 +1,30 @@
+
+<cdm:DocumentMessage xmlns:cdm="http://esb.dsv.com/CDM/DocumentMessage_V2" xmlns:b="http://schemas.microsoft.com/BizTalk/2003" xmlns:ns0="https://MH.ESB.CDM.SharedDataTypes_V2.HeaderPropertySchema_V2" xmlns:ns2="https://MH.ESB.CDM.PropertySchemas.Header_PropertySchema">
+<cdm:Header>
+<cdm:MessageId>16100190</cdm:MessageId>
+<cdm:TimeStamp>20260730</cdm:TimeStamp>
+<cdm:Source>
+<cdm:EnterpriseCode>JP-MBL</cdm:EnterpriseCode>
+<cdm:ApplicationCode>SI-ITAC</cdm:ApplicationCode>
+</cdm:Source>
+<cdm:Target>
+<cdm:EnterpriseCode>DSV.WMS.NGW</cdm:EnterpriseCode>
+<cdm:Division>Solutions</cdm:Division>
+<cdm:ApplicationCode>NGWTEST</cdm:ApplicationCode>
+</cdm:Target>
+<cdm:FunctionalDomain>Operations</cdm:FunctionalDomain>
+<cdm:ESBDomain>Default</cdm:ESBDomain>
+<cdm:ESBInstructions>
+<cdm:ESBInstruction></cdm:ESBInstruction>
+<cdm:ESBInstruction Type="FileName">MBLSSTEN_20260701170132_updated.txt</cdm:ESBInstruction>
+</cdm:ESBInstructions>
+<cdm:MessageType>ASN</cdm:MessageType>
+<cdm:Version>2.0</cdm:Version>
+</cdm:Header>
+<cdm:Document>
+<cdm:FileName>MBLSSTEN_20260701170132_updated.txt</cdm:FileName>
+<cdm:FileType>POS</cdm:FileType>
+<cdm:Parties></cdm:Parties>
+<cdm:Binary>Tm8uCeaXpeS7mAnljLrliIYJ5ZOB55WqCeWTgeWQjQnjg63jg4Pjg4hOby4J5L+d566h5rip5bqmCeWHuuiNt+aVsAnoo73lk4HmnInlirkJ566xTm8u5Zyo5bqrTm8uDQoyNjAwMDEyMQkyMDI2LzA3LzAxCTEwMAk3MzUwCU1FU0FDVVAtMuODhuOCueODiCDjgqvjg6vjgrjjgqrjg6rjg5Tjg7MgSWdHCTAzMkZBCeWGt+iUtQkxLjAwCTIwMjcvMDYvMzAJMQ0KMjYwMDAxMjEJMjAyNi8wNy8wMQkxMDAJNzM1NQlNRVNBQ1VQLTLjg4bjgrnjg4gg44Kr44Or44K444Kq44Oq44OU44OzIElnRwkwMzJGQQnlhrfolLUJMTcuMDAJMjAyNy8wNi8zMAnmrrXjg5zjg7zjg6vDlzE3DQoyNjAwMDEyMQkyMDI2LzA3LzAxCTEwMAk3ODU0CU1FU0FDVVAgYW50aS1USUYxLc6z44OG44K544OICTA1MkZBCeWGt+iUtQk4MC4wMAkyMDI3LzAyLzI4CTI1ICAxNDUgIDE5MCAgMTQ2ICAyMA0K</cdm:Binary>
+</cdm:Document>
+</cdm:DocumentMessage>

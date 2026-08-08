@@ -1,0 +1,27 @@
+<cdm:DocumentMessage xmlns:cdm="http://esb.dsv.com/CDM/DocumentMessage_V2">
+<cdm:Header>
+<cdm:MessageId>c3086e6150324b938cba7b72d5713d96</cdm:MessageId>
+<cdm:InterchangeId>c3086e6150324b938cba7b72d5713d96</cdm:InterchangeId>
+<cdm:TimeStamp>2026-07-21T13:15:13</cdm:TimeStamp>
+<cdm:Source>
+<cdm:EnterpriseCode>DSV.WMS.NGW</cdm:EnterpriseCode>
+<cdm:Division>Solutions</cdm:Division>
+<cdm:ApplicationCode>NGW</cdm:ApplicationCode>
+</cdm:Source>
+<cdm:Target>
+<cdm:EnterpriseCode>JP-MBL</cdm:EnterpriseCode>
+<cdm:CountryCode>JP</cdm:CountryCode>
+<cdm:ApplicationCode>SI-ITAC</cdm:ApplicationCode>
+</cdm:Target>
+<cdm:FunctionalDomain>Operations</cdm:FunctionalDomain>
+<cdm:ESBDomain>Default</cdm:ESBDomain>
+<cdm:MessageType>SSMBLNYU</cdm:MessageType>
+<cdm:Version>2.0</cdm:Version>
+<cdm:Function>New</cdm:Function>
+</cdm:Header>
+<cdm:Document>
+<cdm:FileName>SSMBLNYU_20260702102030.txt</cdm:FileName>
+<cdm:FileType>txt</cdm:FileType>
+<cdm:Binary>MjAyNjA3MDIwMDAwMDAwMTEwMDIwMjYwNzAyNzM1NSAgICAgIDAzMkZBICAgMjAyNzA2MzArMDAwMDAwMDE3DQoyMDI2MDcwMjAwMDAwMDAyMTAwMjAyNjA3MDI3MzUwICAgICAgMDMyRkEgICAyMDI3MDYzMCswMDAwMDAwMDENCjIwMjYwNzAyMDAwMDAwMDMxMDAyMDI2MDcwMjc4NTQgICAgICAwNTJGQSAgIDIwMjcwMjI4KzAwMDAwMDA4MA0K</cdm:Binary>
+</cdm:Document>
+</cdm:DocumentMessage>

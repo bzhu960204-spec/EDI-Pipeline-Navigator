@@ -1,0 +1,67 @@
+# EDI Pipeline Navigator
+
+Internal tool for DSV EDI development on Sterling & Lightwell — clarifies roles/steps
+(Procedure Orchestrator) and organizes QA documents/directories (Artifact Manager).
+
+## Stack
+- **Frontend:** React 18 + Vite + TypeScript + Ant Design v5 (theme-switchable)
+- **Backend:** Spring Boot 3 (Java 17) + Spring Security (JWT) + Spring Data JPA + H2 (file mode)
+
+## Prerequisites
+- Java 17 — `C:\Users\ANGUTANG\jdk-17.0.19+10`
+- Node — `C:\Users\ANGUTANG\node-v24.14.1-win-x64`
+- Maven — `C:\Users\ANGUTANG\Downloads\apache-maven-3.8.4`
+
+## Run (development)
+
+### One command (recommended)
+Starts backend + frontend together, auto-picks free ports if the defaults are taken,
+and injects the resolved backend port into the frontend proxy:
+```powershell
+.\start-dev.cmd            # or: powershell -ExecutionPolicy Bypass -File .\start-dev.ps1
+```
+Options: `-BackendPort 8080 -FrontendPort 5173 -StopExisting`
+(paths overridable via `-JavaHome`, `-NodeHome`, `-MavenBin`).
+
+Shut everything down:
+```powershell
+.\stop-dev.ps1
+```
+
+### Manual (two terminals)
+```powershell
+$env:JAVA_HOME="C:\Users\ANGUTANG\jdk-17.0.19+10"
+cd backend
+mvn.cmd spring-boot:run
+```
+
+Frontend (port 5173, proxies `/api` to 8080):
+```powershell
+$env:Path="C:\Users\ANGUTANG\node-v24.14.1-win-x64;$env:Path"
+cd frontend
+npm.cmd install   # first time only
+npm.cmd run dev
+```
+
+Open http://localhost:5173
+
+## Default admin
+Seeded on first backend start (override via env vars `EDINAV_ADMIN_USER` / `EDINAV_ADMIN_PASSWORD`):
+- username: `admin`
+- password: `admin123`
+
+New sign-ups via the Register page are created as `USER`.
+
+## Useful endpoints
+- `POST /api/auth/login`, `POST /api/auth/register`, `GET /api/auth/me`
+- H2 console: http://localhost:8080/h2-console (JDBC URL `jdbc:h2:file:./data/edinav`, user `sa`)
+
+## Configuration
+See `backend/src/main/resources/application.yml`. In production, set `EDINAV_JWT_SECRET`.
+
+## Roadmap
+- **M1 — Foundation + Auth** ✅ (JWT auth, roles, theming, app shell)
+- **M2 — Procedure Orchestrator** ✅ (global workflow tree, sub-steps, business roles,
+  branching transitions with condition labels, admin CRUD, role-filtered view)
+- **M3 — Artifact Manager** ✅ (per-user artifacts from directory templates, folder tree,
+  uploads/downloads, ZIP export, status stepper + history linked to workflow steps)
