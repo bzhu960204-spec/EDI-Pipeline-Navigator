@@ -7,6 +7,9 @@ import com.dsv.edinav.workflow.dto.BusinessRoleRequest;
 import com.dsv.edinav.workflow.dto.CompositeMemberDto;
 import com.dsv.edinav.workflow.dto.CreateStepRequest;
 import com.dsv.edinav.workflow.dto.CreateTransitionRequest;
+import com.dsv.edinav.workflow.dto.ImportStepNode;
+import com.dsv.edinav.workflow.dto.ImportTransition;
+import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
 import com.dsv.edinav.workflow.dto.TransitionDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
 import com.dsv.edinav.workflow.dto.WorkflowCompositeDto;
@@ -23,6 +26,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -87,6 +92,120 @@ public class WorkflowService {
         workflow.setEntryStepId(request.entryStepId());
         workflow.setOrderIndex(workflowRepository.nextOrderIndex());
         return toWorkflowDto(workflowRepository.save(workflow));
+    }
+
+    @Transactional
+    public WorkflowDto importWorkflow(ImportWorkflowRequest request) {
+        String name = request.name() == null ? null : request.name().trim();
+        if (name == null || name.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Workflow name is required");
+        }
+        if (workflowRepository.existsByNameIgnoreCase(name)) {
+            throw new ApiException(HttpStatus.CONFLICT, "Workflow name already exists");
+        }
+        WorkflowType type = request.type() == null ? WorkflowType.SUB : parseType(request.type());
+        if (type == WorkflowType.MASTER) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Importing MASTER workflows is not supported yet");
+        }
+
+        Workflow workflow = new Workflow();
+        workflow.setName(name);
+        workflow.setDescription(request.description());
+        workflow.setType(type);
+        workflow.setStatus(request.status() == null ? WorkflowStatus.DRAFT : parseStatus(request.status()));
+        workflow.setOrderIndex(workflowRepository.nextOrderIndex());
+        workflowRepository.save(workflow);
+
+        Map<String, Long> refToId = new LinkedHashMap<>();
+        Map<String, BusinessRole> roleCache = new HashMap<>();
+        importSteps(request.steps(), null, workflow.getId(), refToId, roleCache);
+        importTransitions(request.transitions(), refToId);
+
+        if (request.entryStepRef() != null && !request.entryStepRef().isBlank()) {
+            Long entryId = refToId.get(request.entryStepRef().trim());
+            if (entryId == null) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "entryStepRef references an unknown step: " + request.entryStepRef());
+            }
+            workflow.setEntryStepId(entryId);
+            workflowRepository.save(workflow);
+        }
+        return toWorkflowDto(workflow);
+    }
+
+    private void importSteps(List<ImportStepNode> nodes, Long parentId, Long workflowId,
+                             Map<String, Long> refToId, Map<String, BusinessRole> roleCache) {
+        if (nodes == null) {
+            return;
+        }
+        int order = 0;
+        for (ImportStepNode node : nodes) {
+            String ref = node.ref() == null ? null : node.ref().trim();
+            if (ref == null || ref.isEmpty()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Every step needs a non-empty 'ref'");
+            }
+            if (refToId.containsKey(ref)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Duplicate step ref: " + ref);
+            }
+            if (node.name() == null || node.name().isBlank()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Step '" + ref + "' is missing a name");
+            }
+            WorkflowStep step = new WorkflowStep();
+            step.setWorkflowId(workflowId);
+            step.setParentId(parentId);
+            step.setName(node.name().trim());
+            step.setDescription(node.description());
+            step.setNotes(node.notes());
+            step.setBusinessRoleId(resolveRole(node.role(), roleCache));
+            step.setOrderIndex(order++);
+            stepRepository.save(step);
+            refToId.put(ref, step.getId());
+            importSteps(node.children(), step.getId(), workflowId, refToId, roleCache);
+        }
+    }
+
+    private void importTransitions(List<ImportTransition> transitions, Map<String, Long> refToId) {
+        if (transitions == null) {
+            return;
+        }
+        Map<Long, Integer> orderByFrom = new HashMap<>();
+        for (ImportTransition t : transitions) {
+            Long fromId = requireRefId(t.from(), refToId, "transition 'from'");
+            Long toId = requireRefId(t.to(), refToId, "transition 'to'");
+            if (fromId.equals(toId)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "A step cannot transition to itself: " + t.from());
+            }
+            WorkflowTransition transition = new WorkflowTransition();
+            transition.setFromStepId(fromId);
+            transition.setToStepId(toId);
+            transition.setLabel(t.label());
+            transition.setOrderIndex(orderByFrom.merge(fromId, 1, Integer::sum) - 1);
+            transitionRepository.save(transition);
+        }
+    }
+
+    private Long requireRefId(String ref, Map<String, Long> refToId, String context) {
+        String key = ref == null ? null : ref.trim();
+        Long id = key == null ? null : refToId.get(key);
+        if (id == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, context + " references an unknown step: " + ref);
+        }
+        return id;
+    }
+
+    /** Resolves a role by name (case-insensitive), auto-creating it when missing. */
+    private Long resolveRole(String roleName, Map<String, BusinessRole> cache) {
+        if (roleName == null || roleName.isBlank()) {
+            return null;
+        }
+        String key = roleName.trim().toLowerCase();
+        BusinessRole role = cache.computeIfAbsent(key, k ->
+                roleRepository.findFirstByNameIgnoreCase(roleName.trim()).orElseGet(() -> {
+                    BusinessRole created = new BusinessRole();
+                    created.setName(roleName.trim());
+                    return roleRepository.save(created);
+                }));
+        return role.getId();
     }
 
     @Transactional

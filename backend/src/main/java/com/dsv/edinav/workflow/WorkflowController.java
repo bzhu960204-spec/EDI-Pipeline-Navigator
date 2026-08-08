@@ -5,6 +5,7 @@ import com.dsv.edinav.workflow.dto.BusinessRoleDto;
 import com.dsv.edinav.workflow.dto.BusinessRoleRequest;
 import com.dsv.edinav.workflow.dto.CreateStepRequest;
 import com.dsv.edinav.workflow.dto.CreateTransitionRequest;
+import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
 import com.dsv.edinav.workflow.dto.TransitionDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
 import com.dsv.edinav.workflow.dto.WorkflowCompositeDto;
@@ -66,6 +67,12 @@ public class WorkflowController {
     @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto createWorkflow(@Valid @RequestBody WorkflowRequest request) {
         return workflowService.createWorkflow(request);
+    }
+
+    @PostMapping("/workflows/import")
+    @PreAuthorize("hasRole('ADMIN')")
+    public WorkflowDto importWorkflow(@Valid @RequestBody ImportWorkflowRequest request) {
+        return workflowService.importWorkflow(request);
     }
 
     @PutMapping("/workflows/{id}")

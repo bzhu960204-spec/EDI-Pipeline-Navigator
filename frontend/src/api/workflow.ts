@@ -100,6 +100,36 @@ export async function createWorkflow(payload: WorkflowPayload): Promise<Workflow
   return data;
 }
 
+export interface ImportStepNode {
+  ref: string;
+  name: string;
+  description?: string;
+  notes?: string;
+  role?: string;
+  children?: ImportStepNode[];
+}
+
+export interface ImportTransition {
+  from: string;
+  to: string;
+  label?: string;
+}
+
+export interface ImportWorkflowPayload {
+  name: string;
+  description?: string;
+  type?: WorkflowType;
+  status?: WorkflowStatus;
+  entryStepRef?: string;
+  steps?: ImportStepNode[];
+  transitions?: ImportTransition[];
+}
+
+export async function importWorkflow(payload: ImportWorkflowPayload): Promise<Workflow> {
+  const { data } = await api.post<Workflow>('/workflow/workflows/import', payload);
+  return data;
+}
+
 export async function updateWorkflow(id: number, payload: WorkflowPayload): Promise<Workflow> {
   const { data } = await api.put<Workflow>(`/workflow/workflows/${id}`, payload);
   return data;

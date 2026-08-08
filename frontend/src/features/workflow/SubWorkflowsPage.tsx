@@ -12,16 +12,19 @@ import {
   Table,
   Tag,
   Typography,
+  Upload,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { EditOutlined, DeleteOutlined, PlusOutlined, EditFilled } from '@ant-design/icons';
+import { EditOutlined, DeleteOutlined, PlusOutlined, EditFilled, ImportOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   createWorkflow,
   deleteWorkflow,
   fetchWorkflows,
+  importWorkflow,
   updateWorkflow,
+  type ImportWorkflowPayload,
   type Workflow,
   type WorkflowPayload,
   type WorkflowStatus,
@@ -53,6 +56,8 @@ export function SubWorkflowsPage() {
   const [form] = Form.useForm<FormValues>();
 
   const [editing, setEditing] = useState<Workflow | null | undefined>(undefined);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
 
   const { data: workflows = [], isLoading } = useQuery({
     queryKey: ['workflows'],
@@ -90,6 +95,37 @@ export function SubWorkflowsPage() {
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete workflow')),
   });
+
+  const runImport = useMutation({
+    mutationFn: (payload: ImportWorkflowPayload) => importWorkflow(payload),
+    onSuccess: (wf) => {
+      message.success(`Imported "${wf.name}"`);
+      setImportOpen(false);
+      setImportText('');
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to import workflow')),
+  });
+
+  const submitImport = () => {
+    let payload: ImportWorkflowPayload;
+    try {
+      payload = JSON.parse(importText) as ImportWorkflowPayload;
+    } catch {
+      message.error('Invalid JSON');
+      return;
+    }
+    if (!payload || typeof payload.name !== 'string' || !payload.name.trim()) {
+      message.error('JSON must include a non-empty "name"');
+      return;
+    }
+    runImport.mutate(payload);
+  };
+
+  const onImportFile = (file: File) => {
+    file.text().then((text) => setImportText(text));
+    return false;
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -162,9 +198,14 @@ export function SubWorkflowsPage() {
           Sub-Workflows
         </Typography.Title>
         {admin && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            New sub-workflow
-          </Button>
+          <Space>
+            <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
+              Import JSON
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+              New sub-workflow
+            </Button>
+          </Space>
         )}
       </Row>
 
@@ -208,6 +249,31 @@ export function SubWorkflowsPage() {
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        open={importOpen}
+        title="Import sub-workflow from JSON"
+        okText="Import"
+        confirmLoading={runImport.isPending}
+        onCancel={() => setImportOpen(false)}
+        onOk={submitImport}
+        width={640}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Upload accept=".json,application/json" showUploadList={false} beforeUpload={onImportFile}>
+            <Button icon={<ImportOutlined />}>Choose JSON file</Button>
+          </Upload>
+          <Input.TextArea
+            rows={14}
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            placeholder='{ "name": "...", "steps": [ ... ], "transitions": [ ... ] }'
+          />
+          <Typography.Text type="secondary">
+            Missing business roles are created automatically. See the README for the full template.
+          </Typography.Text>
+        </Space>
       </Modal>
     </div>
   );
