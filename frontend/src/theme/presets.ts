@@ -55,6 +55,7 @@ export function buildThemeConfig(
   }
   return {
     algorithm: algorithms,
+    cssVar: true,
     token: {
       colorPrimary: preset.colorPrimary,
       ...preset.token,
