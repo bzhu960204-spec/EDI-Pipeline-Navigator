@@ -56,6 +56,7 @@ export interface WorkflowStep {
   name: string;
   description?: string | null;
   notes?: string | null;
+  lineageKey?: string | null;
   businessRoles: BusinessRole[];
   phase?: WorkflowPhase | null;
   children: WorkflowStep[];
@@ -135,6 +136,7 @@ export async function createWorkflow(payload: WorkflowPayload): Promise<Workflow
 
 export interface ImportStepNode {
   ref: string;
+  lineageKey?: string;
   name: string;
   description?: string;
   notes?: string;

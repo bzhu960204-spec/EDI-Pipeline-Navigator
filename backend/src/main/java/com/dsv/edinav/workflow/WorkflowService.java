@@ -200,6 +200,7 @@ public class WorkflowService {
             step.setName(node.name().trim());
             step.setDescription(node.description());
             step.setNotes(node.notes());
+            step.setLineageKey(node.lineageKey());
             step.setBusinessRoleIds(resolveRoles(node.roles(), node.role(), roleCache));
             step.setPhaseId(resolveImportedPhase(node.phase(), phaseRefToId));
             step.setOrderIndex(order++);
@@ -327,7 +328,7 @@ public class WorkflowService {
                         phaseRef = phaseRef(step.getPhaseId());
                     }
                     List<ImportStepNode> children = exportStepNodes(step.getId(), byParent, roles, phasesById, includePhases);
-                    return new ImportStepNode(stepRef(step.getId()), step.getName(), step.getDescription(),
+                    return new ImportStepNode(stepRef(step.getId()), step.getLineageKey(), step.getName(), step.getDescription(),
                             step.getNotes(), null, roleNames.isEmpty() ? null : roleNames, phaseRef,
                             children.isEmpty() ? null : children);
                 })
@@ -462,6 +463,7 @@ public class WorkflowService {
             } else {
                 step = new WorkflowStep();
                 step.setWorkflowId(ctx.workflowId);
+                step.setLineageKey(node.lineageKey());
                 isNew = true;
             }
             step.setParentId(parentId);
@@ -787,7 +789,7 @@ public class WorkflowService {
                 .toList();
         WorkflowPhase phase = step.getPhaseId() == null ? null : phases.get(step.getPhaseId());
         return new WorkflowStepDto(step.getId(), step.getWorkflowId(), step.getParentId(), step.getOrderIndex(),
-                step.getName(), step.getDescription(), step.getNotes(),
+                step.getName(), step.getDescription(), step.getNotes(), step.getLineageKey(),
                 roleDtos,
                 phase == null ? null : toPhaseDto(phase), children, transitions);
     }
@@ -919,7 +921,7 @@ public class WorkflowService {
                             .toList();
                     WorkflowPhase phase = step.getPhaseId() == null ? null : phases.get(step.getPhaseId());
                     return new WorkflowStepDto(step.getId(), step.getWorkflowId(), step.getParentId(), step.getOrderIndex(),
-                            step.getName(), step.getDescription(), step.getNotes(), roleDtos,
+                            step.getName(), step.getDescription(), step.getNotes(), step.getLineageKey(), roleDtos,
                             phase == null ? null : toPhaseDto(phase), List.of(), List.of());
                 })
                 .toList();

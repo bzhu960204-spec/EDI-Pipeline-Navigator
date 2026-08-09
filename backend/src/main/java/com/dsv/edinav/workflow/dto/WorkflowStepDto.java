@@ -10,6 +10,7 @@ public record WorkflowStepDto(
         String name,
         String description,
         String notes,
+        String lineageKey,
         List<BusinessRoleDto> businessRoles,
         WorkflowPhaseDto phase,
         List<WorkflowStepDto> children,

@@ -15,7 +15,7 @@ import {
   Upload,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { EditOutlined, DeleteOutlined, PlusOutlined, EditFilled, ImportOutlined } from '@ant-design/icons';
+import { EditOutlined, DeleteOutlined, PlusOutlined, EditFilled, ImportOutlined, InboxOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -253,9 +253,12 @@ export function SubWorkflowsPage() {
         width={640}
       >
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <Upload accept=".json,application/json" showUploadList={false} beforeUpload={onImportFile}>
-            <Button icon={<ImportOutlined />}>Choose JSON file</Button>
-          </Upload>
+          <Upload.Dragger accept=".json,application/json" showUploadList={false} beforeUpload={onImportFile}>
+            <p className="ant-upload-drag-icon">
+              <InboxOutlined />
+            </p>
+            <p className="ant-upload-text">Drag a JSON file here, or click to browse</p>
+          </Upload.Dragger>
           <Input.TextArea
             rows={14}
             value={importText}

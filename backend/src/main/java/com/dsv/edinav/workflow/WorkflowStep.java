@@ -10,10 +10,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Lob;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * A node in the single company-wide workflow. Steps form a hierarchy via {@code parentId}
@@ -29,6 +31,10 @@ public class WorkflowStep {
 
     /** Owning workflow container; every step belongs to exactly one workflow. */
     private Long workflowId;
+
+    /** Stable identity of a logical step across versions; copied when a version is cloned so it survives renames/moves. */
+    @Column(length = 36)
+    private String lineageKey;
 
     /** Parent step for sub-steps; null for a root step within its workflow. */
     private Long parentId;
@@ -63,6 +69,9 @@ public class WorkflowStep {
     public Long getWorkflowId() { return workflowId; }
     public void setWorkflowId(Long workflowId) { this.workflowId = workflowId; }
 
+    public String getLineageKey() { return lineageKey; }
+    public void setLineageKey(String lineageKey) { this.lineageKey = lineageKey; }
+
     public Long getParentId() { return parentId; }
     public void setParentId(Long parentId) { this.parentId = parentId; }
 
@@ -85,4 +94,11 @@ public class WorkflowStep {
 
     public Long getPhaseId() { return phaseId; }
     public void setPhaseId(Long phaseId) { this.phaseId = phaseId; }
+
+    @PrePersist
+    void ensureLineageKey() {
+        if (lineageKey == null || lineageKey.isBlank()) {
+            lineageKey = UUID.randomUUID().toString();
+        }
+    }
 }

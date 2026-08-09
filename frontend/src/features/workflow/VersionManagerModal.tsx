@@ -42,12 +42,13 @@ interface FlatStep {
   phase: string;
 }
 
-/** Flattens a step tree into a map keyed by name-path, so two versions can be aligned for a diff. */
+/** Flattens a step tree, keyed by lineageKey when present (rename/move proof) else by name-path. */
 function flatten(steps: WorkflowStep[], parent = ''): Map<string, FlatStep> {
   const out = new Map<string, FlatStep>();
   steps.forEach((step) => {
     const path = parent ? `${parent} / ${step.name}` : step.name;
-    out.set(path.toLowerCase(), {
+    const key = step.lineageKey ?? `name:${path.toLowerCase()}`;
+    out.set(key, {
       path,
       name: step.name,
       description: step.description ?? '',
@@ -62,20 +63,48 @@ function flatten(steps: WorkflowStep[], parent = ''): Map<string, FlatStep> {
   return out;
 }
 
+type FieldChange = {
+  field: string;
+  before: string | null;
+  after: string | null;
+};
+
 type DiffRow = {
   key: string;
   path: string;
   change: 'added' | 'removed' | 'changed';
-  fields: string[];
+  fields: FieldChange[];
 };
 
-function diffFields(a: FlatStep, b: FlatStep): string[] {
-  const fields: string[] = [];
-  if (a.description !== b.description) fields.push('description');
-  if (a.notes !== b.notes) fields.push('notes');
-  if (a.roles !== b.roles) fields.push('roles');
-  if (a.phase !== b.phase) fields.push('phase');
+const FIELD_LABELS: Record<string, string> = {
+  name: 'Name',
+  description: 'Description',
+  notes: 'Notes',
+  roles: 'Roles',
+  phase: 'Phase',
+};
+
+function diffFields(a: FlatStep, b: FlatStep): FieldChange[] {
+  const fields: FieldChange[] = [];
+  if (a.name !== b.name) fields.push({ field: 'name', before: a.name, after: b.name });
+  if (a.description !== b.description)
+    fields.push({ field: 'description', before: a.description, after: b.description });
+  if (a.notes !== b.notes) fields.push({ field: 'notes', before: a.notes, after: b.notes });
+  if (a.roles !== b.roles) fields.push({ field: 'roles', before: a.roles, after: b.roles });
+  if (a.phase !== b.phase) fields.push({ field: 'phase', before: a.phase, after: b.phase });
   return fields;
+}
+
+/** All fields of a single step, used to describe an added/removed step in full. */
+function snapshotFields(step: FlatStep, kind: 'added' | 'removed'): FieldChange[] {
+  const order: (keyof FlatStep)[] = ['name', 'description', 'notes', 'roles', 'phase'];
+  return order
+    .filter((f) => step[f] !== '')
+    .map((f) => ({
+      field: f,
+      before: kind === 'removed' ? step[f] : null,
+      after: kind === 'added' ? step[f] : null,
+    }));
 }
 
 function buildDiff(a: WorkflowStep[], b: WorkflowStep[]): DiffRow[] {
@@ -85,14 +114,16 @@ function buildDiff(a: WorkflowStep[], b: WorkflowStep[]): DiffRow[] {
   fa.forEach((stepA, key) => {
     const stepB = fb.get(key);
     if (!stepB) {
-      rows.push({ key, path: stepA.path, change: 'removed', fields: [] });
+      rows.push({ key, path: stepA.path, change: 'removed', fields: snapshotFields(stepA, 'removed') });
     } else {
       const fields = diffFields(stepA, stepB);
-      if (fields.length > 0) rows.push({ key, path: stepA.path, change: 'changed', fields });
+      // Show a rename as "old -> new" so the moved/renamed step reads clearly.
+      const path = stepA.name !== stepB.name ? `${stepA.path} → ${stepB.path}` : stepB.path;
+      if (fields.length > 0) rows.push({ key, path, change: 'changed', fields });
     }
   });
   fb.forEach((stepB, key) => {
-    if (!fa.has(key)) rows.push({ key, path: stepB.path, change: 'added', fields: [] });
+    if (!fa.has(key)) rows.push({ key, path: stepB.path, change: 'added', fields: snapshotFields(stepB, 'added') });
   });
   return rows.sort((x, y) => x.path.localeCompare(y.path));
 }
@@ -313,7 +344,7 @@ function CompareDrawer({
     {
       title: 'Fields',
       dataIndex: 'fields',
-      render: (fields: string[]) => fields.join(', '),
+      render: (fields: FieldChange[]) => fields.map((f) => FIELD_LABELS[f.field] ?? f.field).join(', '),
     },
   ];
 
@@ -330,8 +361,106 @@ function CompareDrawer({
       ) : rows.length === 0 ? (
         <Typography.Text type="secondary">No step differences between these two versions.</Typography.Text>
       ) : (
-        <Table rowKey="key" size="small" columns={columns} dataSource={rows} pagination={false} />
+        <Table
+          rowKey="key"
+          size="small"
+          columns={columns}
+          dataSource={rows}
+          pagination={false}
+          expandable={{
+            rowExpandable: (row) => row.fields.length > 0,
+            expandedRowRender: (row) => <FieldChanges fields={row.fields} />,
+          }}
+        />
       )}
     </Modal>
+  );
+}
+
+/** Splits a comma-joined role string into a trimmed set. */
+function roleSet(value: string | null): Set<string> {
+  return new Set(
+    (value ?? '')
+      .split(',')
+      .map((r) => r.trim())
+      .filter(Boolean),
+  );
+}
+
+function RoleDelta({ before, after }: { before: string | null; after: string | null }) {
+  const from = roleSet(before);
+  const to = roleSet(after);
+  const added = [...to].filter((r) => !from.has(r));
+  const removed = [...from].filter((r) => !to.has(r));
+  if (added.length === 0 && removed.length === 0) {
+    return <Typography.Text type="secondary">—</Typography.Text>;
+  }
+  return (
+    <Space size={4} wrap>
+      {removed.map((r) => (
+        <Tag key={`r-${r}`} color="red">
+          − {r}
+        </Tag>
+      ))}
+      {added.map((r) => (
+        <Tag key={`a-${r}`} color="green">
+          + {r}
+        </Tag>
+      ))}
+    </Space>
+  );
+}
+
+function ValueCell({ value, tone }: { value: string | null; tone: 'before' | 'after' }) {
+  if (value === null || value === '') {
+    return <Typography.Text type="secondary">—</Typography.Text>;
+  }
+  return (
+    <Typography.Text
+      style={{
+        color: tone === 'before' ? '#cf1322' : '#389e0d',
+        textDecoration: tone === 'before' ? 'line-through' : undefined,
+        whiteSpace: 'pre-wrap',
+      }}
+    >
+      {value}
+    </Typography.Text>
+  );
+}
+
+function FieldChanges({ fields }: { fields: FieldChange[] }) {
+  const columns: ColumnsType<FieldChange> = [
+    {
+      title: 'Field',
+      dataIndex: 'field',
+      width: 120,
+      render: (field: string) => FIELD_LABELS[field] ?? field,
+    },
+    {
+      title: 'Before',
+      key: 'before',
+      render: (_, f) =>
+        f.field === 'roles' ? (
+          <RoleDelta before={f.before} after={f.after} />
+        ) : (
+          <ValueCell value={f.before} tone="before" />
+        ),
+    },
+    {
+      title: 'After',
+      key: 'after',
+      // Role changes are shown as a single +/− delta in the Before column.
+      render: (_, f) => (f.field === 'roles' ? null : <ValueCell value={f.after} tone="after" />),
+    },
+  ];
+  return (
+    <Table
+      rowKey="field"
+      size="small"
+      columns={columns}
+      dataSource={fields}
+      pagination={false}
+      showHeader={false}
+    />
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { App as AntApp, Button, Checkbox, Col, Dropdown, Input, Modal, Row, Segmented, Space, Spin, Tag, Tooltip, Tree, Typography, Upload } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import type { MenuProps } from 'antd';
-import { ApartmentOutlined, ArrowLeftOutlined, BranchesOutlined, CheckOutlined, DownOutlined, ExportOutlined, GroupOutlined, ImportOutlined, MoreOutlined, PartitionOutlined, PlusOutlined, StarOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, ArrowLeftOutlined, BranchesOutlined, CheckOutlined, DownOutlined, ExportOutlined, GroupOutlined, ImportOutlined, InboxOutlined, MoreOutlined, PartitionOutlined, PlusOutlined, StarOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -561,9 +561,12 @@ export function WorkflowPage() {
             added, and steps missing from the file are removed. When the JSON has no phases, existing
             phases are kept — new steps inherit their parent's phase.
           </Typography.Text>
-          <Upload accept=".json,application/json" showUploadList={false} beforeUpload={onUpdateFile}>
-            <Button icon={<ImportOutlined />}>Choose JSON file</Button>
-          </Upload>
+          <Upload.Dragger accept=".json,application/json" showUploadList={false} beforeUpload={onUpdateFile}>
+            <p className="ant-upload-drag-icon">
+              <InboxOutlined />
+            </p>
+            <p className="ant-upload-text">Drag a JSON file here, or click to browse</p>
+          </Upload.Dragger>
           <Input.TextArea
             value={updateText}
             onChange={(e) => setUpdateText(e.target.value)}

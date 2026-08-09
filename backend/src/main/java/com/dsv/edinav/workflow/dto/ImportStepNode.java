@@ -8,6 +8,7 @@ import java.util.List;
  */
 public record ImportStepNode(
         String ref,
+        String lineageKey,
         String name,
         String description,
         String notes,
