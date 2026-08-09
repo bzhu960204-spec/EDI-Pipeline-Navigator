@@ -73,11 +73,14 @@ document via **Sub-Workflows → Import JSON** (upload a file or paste the text)
 `POST /api/workflow/workflows/import`.
 
 Because step database ids do not exist yet at import time, steps carry a caller-defined `ref`
-key. Transitions and `entryStepRef` reference steps by that `ref`; the backend resolves each
-`ref` to the generated id. Parent/child nesting is expressed with `children`. Business roles are
-referenced by **name** and auto-created when they don't already exist. The whole import runs in
-one transaction — any error rolls it all back. Only `SUB` workflows are supported (importing a
-`MASTER` composition is not yet available).
+key. Transitions and `steps[].phase` reference steps/phases by that `ref`; the
+backend resolves each `ref` to the generated id. Parent/child nesting is expressed with `children`.
+Business roles are referenced by **name** and auto-created when they don't already exist. Phases
+are declared once under `phases[]` and attached to steps via `steps[].phase`. The whole import runs
+in one transaction — any error rolls it all back.
+
+The same schema is produced by **Export** (`GET /api/workflow/workflows/{id}/export`), so an
+exported file re-imports cleanly. Unknown fields are ignored, so older exports still import.
 
 ### Field reference
 
@@ -85,15 +88,21 @@ one transaction — any error rolls it all back. Only `SUB` workflows are suppor
 | --- | --- | --- |
 | `name` | ✅ | Workflow name, must be unique (else 409) |
 | `description` | | Free text |
-| `type` | | `SUB` (default). `MASTER` is rejected for now |
 | `status` | | `DRAFT` (default) or `PUBLISHED` |
-| `entryStepRef` | | A step `ref` to mark as the entry step |
+| `phases[]` | | Phase definitions (swimlanes); referenced by steps via `phase` |
+| `phases[].ref` | ✅ (if used) | Unique key within the file (used by `steps[].phase`) |
+| `phases[].name` | ✅ (if used) | Phase name |
+| `phases[].color` | | Hex color for the swimlane band (e.g. `#1677ff`) |
+| `phases[].orderIndex` | | Sort order among phases |
+| `phases[].description` | | Free text |
 | `steps[]` | ✅ | Step tree; nest with `children` |
-| `steps[].ref` | ✅ | Unique key within the file (used by transitions/entry) |
+| `steps[].ref` | ✅ | Unique key within the file (used by transitions) |
 | `steps[].name` | ✅ | Step name |
 | `steps[].description` / `notes` | | Free text |
 | `steps[].roles` | | Business role names (array; resolved by name, auto-created). A step may have several. |
 | `steps[].role` | | Legacy single role name; still accepted and merged with `roles` |
+| `steps[].phase` | | A phase `ref` this step belongs to |
+| `steps[].lineageKey` | | Cross-version identity (UUID); emitted by Export, auto-generated if omitted |
 | `steps[].children[]` | | Nested child steps (same shape) |
 | `transitions[]` | | Branching edges; `from`/`to` are step `ref`s, `label` is the condition |
 
@@ -103,9 +112,11 @@ one transaction — any error rolls it all back. Only `SUB` workflows are suppor
 {
   "name": "JP-MBL Import Parsing",
   "description": "Reusable sub-workflow for parsing JP MBL import files",
-  "type": "SUB",                 // "SUB" | "MASTER" (defaults to SUB)
   "status": "DRAFT",             // "DRAFT" | "PUBLISHED" (defaults to DRAFT)
-  "entryStepRef": "receive",     // a step ref, marks the entry step (optional)
+  "phases": [                    // optional swimlanes; steps attach via "phase"
+    { "ref": "intake",  "name": "Intake",     "color": "#1677ff", "orderIndex": 0 },
+    { "ref": "process", "name": "Processing", "color": "#52c41a", "orderIndex": 1 }
+  ],
   "steps": [
     {
       "ref": "receive",          // unique key within this file
@@ -113,11 +124,12 @@ one transaction — any error rolls it all back. Only `SUB` workflows are suppor
       "description": "Pick up inbound EDI from the LW mailbox",
       "notes": "Runs every 5 min",
       "roles": ["EDI Developer", "QA"],  // names, resolved/created; a step may have several
+      "phase": "intake",         // a phase ref (optional)
       "children": [
-        { "ref": "validate", "name": "Validate envelope", "roles": ["QA"] }
+        { "ref": "validate", "name": "Validate envelope", "roles": ["QA"], "phase": "intake" }
       ]
     },
-    { "ref": "parse",  "name": "Parse segments",  "roles": ["EDI Developer"] },
+    { "ref": "parse",  "name": "Parse segments",  "roles": ["EDI Developer"], "phase": "process" },
     { "ref": "reject", "name": "Reject & notify", "role": "QA" }
   ],
   "transitions": [

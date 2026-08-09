@@ -20,7 +20,6 @@ import type { WorkflowPhase, WorkflowStep } from '../../api/workflow';
 interface WorkflowGraphProps {
   tree: WorkflowStep[];
   phases: WorkflowPhase[];
-  entryStepId?: number | null;
   selectedId: number | null;
   onSelect: (stepId: number) => void;
 }
@@ -310,8 +309,10 @@ function buildEdges(model: GraphModel): Edge[] {
   }));
 }
 
-export function WorkflowGraph({ tree, phases, entryStepId, selectedId, onSelect }: Readonly<WorkflowGraphProps>) {
+export function WorkflowGraph({ tree, phases, selectedId, onSelect }: Readonly<WorkflowGraphProps>) {
   const steps = useMemo(() => flatten(tree), [tree]);
+  // The first root step is the implicit entry: DFS seed for rollback detection + green marker.
+  const entryStepId = tree[0]?.id ?? null;
   const hasPhases = phases.length > 0;
   const [showRollback, setShowRollback] = useState(true);
   const [showPhases, setShowPhases] = useState(true);

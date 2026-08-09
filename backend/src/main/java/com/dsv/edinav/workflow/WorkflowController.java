@@ -13,6 +13,8 @@ import com.dsv.edinav.workflow.dto.WorkflowPhaseDto;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseRequest;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
+import com.dsv.edinav.workflow.dto.WorkflowTagDto;
+import com.dsv.edinav.workflow.dto.WorkflowTagRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -207,5 +209,31 @@ public class WorkflowController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deletePhase(@PathVariable Long id) {
         workflowService.deletePhase(id);
+    }
+
+    // ----- Tags -----
+
+    @GetMapping("/tags")
+    public List<WorkflowTagDto> getTags() {
+        return workflowService.getTags();
+    }
+
+    @PostMapping("/tags")
+    @PreAuthorize("hasRole('ADMIN')")
+    public WorkflowTagDto createTag(@Valid @RequestBody WorkflowTagRequest request) {
+        return workflowService.createTag(request);
+    }
+
+    @PutMapping("/tags/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public WorkflowTagDto updateTag(@PathVariable Long id, @Valid @RequestBody WorkflowTagRequest request) {
+        return workflowService.updateTag(id, request);
+    }
+
+    @DeleteMapping("/tags/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteTag(@PathVariable Long id) {
+        workflowService.deleteTag(id);
     }
 }

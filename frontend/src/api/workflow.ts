@@ -2,25 +2,31 @@ import { api } from './client';
 
 export type WorkflowStatus = 'DRAFT' | 'PUBLISHED';
 
+export interface WorkflowTag {
+  id: number;
+  name: string;
+  color?: string | null;
+}
+
 export interface Workflow {
   id: number;
   name: string;
   description?: string | null;
   status: WorkflowStatus;
-  entryStepId?: number | null;
   groupId: number;
   version: number;
   versionLabel?: string | null;
   isCurrent: boolean;
   orderIndex: number;
   stepCount: number;
+  tags: WorkflowTag[];
 }
 
 export interface WorkflowPayload {
   name: string;
   description?: string;
   status?: WorkflowStatus;
-  entryStepId?: number | null;
+  tagIds?: number[];
 }
 
 export interface BusinessRole {
@@ -86,6 +92,11 @@ export interface WorkflowPhasePayload {
   color?: string;
   orderIndex?: number;
   description?: string;
+}
+
+export interface WorkflowTagPayload {
+  name: string;
+  color?: string;
 }
 
 export interface CreateTransitionPayload {
@@ -164,7 +175,7 @@ export interface ImportWorkflowPayload {
   name: string;
   description?: string;
   status?: WorkflowStatus;
-  entryStepRef?: string;
+  tags?: string[];
   phases?: ImportPhaseNode[];
   steps?: ImportStepNode[];
   transitions?: ImportTransition[];
@@ -263,4 +274,23 @@ export async function updatePhase(id: number, payload: WorkflowPhasePayload): Pr
 
 export async function deletePhase(id: number): Promise<void> {
   await api.delete(`/workflow/phases/${id}`);
+}
+
+export async function fetchTags(): Promise<WorkflowTag[]> {
+  const { data } = await api.get<WorkflowTag[]>('/workflow/tags');
+  return data;
+}
+
+export async function createTag(payload: WorkflowTagPayload): Promise<WorkflowTag> {
+  const { data } = await api.post<WorkflowTag>('/workflow/tags', payload);
+  return data;
+}
+
+export async function updateTag(id: number, payload: WorkflowTagPayload): Promise<WorkflowTag> {
+  const { data } = await api.put<WorkflowTag>(`/workflow/tags/${id}`, payload);
+  return data;
+}
+
+export async function deleteTag(id: number): Promise<void> {
+  await api.delete(`/workflow/tags/${id}`);
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   App as AntApp,
   Button,
@@ -15,12 +15,21 @@ import {
   Upload,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { EditOutlined, DeleteOutlined, PlusOutlined, EditFilled, ImportOutlined, InboxOutlined } from '@ant-design/icons';
+import {
+  EditOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  EditFilled,
+  ImportOutlined,
+  InboxOutlined,
+  TagsOutlined,
+} from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   createWorkflow,
   deleteWorkflow,
+  fetchTags,
   fetchWorkflows,
   importWorkflow,
   updateWorkflow,
@@ -31,11 +40,13 @@ import {
 } from '../../api/workflow';
 import { extractErrorMessage } from '../../api/client';
 import { isAdmin, useAuthStore } from '../auth/authStore';
+import { TagManagerPanel } from './TagManagerPanel';
 
 interface FormValues {
   name: string;
   description?: string;
   status: WorkflowStatus;
+  tagIds?: number[];
 }
 
 function statusColor(status: WorkflowStatus) {
@@ -52,11 +63,37 @@ export function SubWorkflowsPage() {
   const [editing, setEditing] = useState<Workflow | null | undefined>(undefined);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
+  const [tagsOpen, setTagsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<WorkflowStatus | undefined>(undefined);
+  const [tagFilter, setTagFilter] = useState<number[]>([]);
 
   const { data: workflows = [], isLoading } = useQuery({
     queryKey: ['workflows'],
     queryFn: () => fetchWorkflows(),
   });
+
+  const { data: tags = [] } = useQuery({ queryKey: ['tags'], queryFn: fetchTags });
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return workflows.filter((wf) => {
+      if (statusFilter && wf.status !== statusFilter) return false;
+      if (tagFilter.length > 0 && !tagFilter.every((id) => wf.tags.some((t) => t.id === id))) return false;
+      if (q) {
+        const haystack = `${wf.name} ${wf.description ?? ''}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [workflows, search, statusFilter, tagFilter]);
+
+  const hasFilters = search.trim() !== '' || statusFilter !== undefined || tagFilter.length > 0;
+  const clearFilters = () => {
+    setSearch('');
+    setStatusFilter(undefined);
+    setTagFilter([]);
+  };
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['workflows'] });
 
@@ -68,6 +105,7 @@ export function SubWorkflowsPage() {
         name: values.name,
         description: values.description,
         status: values.status,
+        tagIds: values.tagIds ?? [],
       };
       return editing ? updateWorkflow(editing.id, payload) : createWorkflow(payload);
     },
@@ -121,7 +159,7 @@ export function SubWorkflowsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    form.setFieldsValue({ name: '', description: '', status: 'DRAFT' });
+    form.setFieldsValue({ name: '', description: '', status: 'DRAFT', tagIds: [] });
   };
 
   const openEdit = (wf: Workflow) => {
@@ -130,6 +168,7 @@ export function SubWorkflowsPage() {
       name: wf.name,
       description: wf.description ?? '',
       status: wf.status,
+      tagIds: wf.tags.map((t) => t.id),
     });
   };
 
@@ -163,6 +202,22 @@ export function SubWorkflowsPage() {
       dataIndex: 'status',
       width: 120,
       render: (status: WorkflowStatus) => <Tag color={statusColor(status)}>{status}</Tag>,
+    },
+    {
+      title: 'Tags',
+      key: 'tags',
+      render: (_, wf) =>
+        wf.tags.length > 0 ? (
+          <Space size={4} wrap>
+            {wf.tags.map((t) => (
+              <Tag key={t.id} color={t.color ?? undefined} style={{ marginInlineEnd: 0 }}>
+                {t.name}
+              </Tag>
+            ))}
+          </Space>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        ),
     },
     { title: 'Steps', dataIndex: 'stepCount', width: 80 },
     {
@@ -199,6 +254,9 @@ export function SubWorkflowsPage() {
         </Typography.Title>
         {admin && (
           <Space>
+            <Button icon={<TagsOutlined />} onClick={() => setTagsOpen(true)}>
+              Manage tags
+            </Button>
             <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
               Import JSON
             </Button>
@@ -209,12 +267,43 @@ export function SubWorkflowsPage() {
         )}
       </Row>
 
+      <Space wrap style={{ marginBottom: 16 }}>
+        <Input.Search
+          allowClear
+          placeholder="Search name or description"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ width: 260 }}
+        />
+        <Select
+          allowClear
+          placeholder="Status"
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v)}
+          style={{ width: 140 }}
+          options={[
+            { value: 'DRAFT', label: 'Draft' },
+            { value: 'PUBLISHED', label: 'Published' },
+          ]}
+        />
+        <Select
+          allowClear
+          mode="multiple"
+          placeholder="Tags"
+          value={tagFilter}
+          onChange={(v) => setTagFilter(v)}
+          style={{ minWidth: 220 }}
+          options={tags.map((t) => ({ value: t.id, label: t.name }))}
+        />
+        {hasFilters && <Button onClick={clearFilters}>Clear filters</Button>}
+      </Space>
+
       <Table
         rowKey="id"
         loading={isLoading}
         columns={columns}
-        dataSource={workflows}
-        pagination={false}
+        dataSource={filtered}
+        pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `${total} workflow(s)` }}
       />
 
       <Modal
@@ -231,6 +320,14 @@ export function SubWorkflowsPage() {
           </Form.Item>
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={3} maxLength={4000} />
+          </Form.Item>
+          <Form.Item name="tagIds" label="Tags">
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="Attach tags"
+              options={tags.map((t) => ({ value: t.id, label: t.name }))}
+            />
           </Form.Item>
           <Form.Item name="status" label="Status" rules={[{ required: true }]}>
             <Select
@@ -269,6 +366,16 @@ export function SubWorkflowsPage() {
             Missing business roles are created automatically. See the README for the full template.
           </Typography.Text>
         </Space>
+      </Modal>
+
+      <Modal
+        open={tagsOpen}
+        title="Manage workflow tags"
+        footer={null}
+        width={520}
+        onCancel={() => setTagsOpen(false)}
+      >
+        <TagManagerPanel tags={tags} editable={admin} />
       </Modal>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { App as AntApp, Button, Checkbox, Col, Dropdown, Input, Modal, Row, Segmented, Space, Spin, Tag, Tooltip, Tree, Typography, Upload } from 'antd';
+import { App as AntApp, Button, Checkbox, Col, Collapse, Dropdown, Input, Modal, Row, Segmented, Space, Spin, Tag, Tooltip, Tree, Typography, Upload } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import type { MenuProps } from 'antd';
 import { ApartmentOutlined, ArrowLeftOutlined, BranchesOutlined, CheckOutlined, DownOutlined, ExportOutlined, GroupOutlined, ImportOutlined, InboxOutlined, MoreOutlined, PartitionOutlined, PlusOutlined, StarOutlined } from '@ant-design/icons';
@@ -18,7 +18,6 @@ import {
   fetchWorkflowTree,
   setCurrentVersion,
   updateStep,
-  updateWorkflow,
   updateWorkflowFromImport,
   type ImportWorkflowPayload,
   type Transition,
@@ -27,7 +26,7 @@ import {
 } from '../../api/workflow';
 import { extractErrorMessage } from '../../api/client';
 import { isAdmin, useAuthStore } from '../auth/authStore';
-import { findStep } from './workflowUtils';
+import { buildIncomingIndex, findStep } from './workflowUtils';
 import { StepDetail } from './StepDetail';
 import { StepFormModal, type StepFormValues } from './StepFormModal';
 import { TransitionFormModal } from './TransitionFormModal';
@@ -183,6 +182,7 @@ export function WorkflowPage() {
     [grouped, tree, phases],
   );
   const selectedStep = selectedId != null ? findStep(tree, selectedId) : null;
+  const incomingIndex = useMemo(() => buildIncomingIndex(tree), [tree]);
 
   // Auto-expand phase group headers once when entering the grouped view.
   const groupSeeded = useRef(false);
@@ -256,25 +256,6 @@ export function WorkflowPage() {
       invalidate();
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to remove transition')),
-  });
-
-  const setEntry = useMutation({
-    mutationFn: (stepId: number) => {
-      if (!workflow) {
-        return Promise.reject(new Error('Workflow not loaded'));
-      }
-      return updateWorkflow(workflowId, {
-        name: workflow.name,
-        description: workflow.description ?? undefined,
-        status: workflow.status,
-        entryStepId: stepId,
-      });
-    },
-    onSuccess: () => {
-      message.success('Entry step set');
-      queryClient.invalidateQueries({ queryKey: ['workflows', workflowId] });
-    },
-    onError: (e) => message.error(extractErrorMessage(e, 'Failed to set entry step')),
   });
 
   const runExport = useMutation({
@@ -394,37 +375,23 @@ export function WorkflowPage() {
       <WorkflowGraph
         tree={tree}
         phases={phases}
-        entryStepId={workflow?.entryStepId}
         selectedId={selectedId}
         onSelect={setSelectedId}
       />
     );
   } else {
     leftPanel = (
-      <Space direction="vertical" size={8} style={{ width: '100%' }}>
-        {canGroupByPhase && (
-          <Segmented
-            size="small"
-            value={treeGroup}
-            onChange={(v) => setTreeGroup(v as TreeGrouping)}
-            options={[
-              { label: 'Hierarchy', value: 'hierarchy' },
-              { label: 'By phase', value: 'phase' },
-            ]}
-          />
-        )}
-        <div style={{ border: '1px solid rgba(5,5,5,0.06)', borderRadius: 8, padding: 12 }}>
-          <Tree
-            showLine
-            blockNode
-            treeData={grouped ? groupedTreeData : treeData}
-            selectedKeys={selectedId != null ? [selectedId] : []}
-            expandedKeys={expandedKeys}
-            onExpand={(keys) => setExpandedKeys(keys)}
-            onSelect={(keys) => setSelectedId(keys.length ? Number(keys[0]) : null)}
-          />
-        </div>
-      </Space>
+      <div style={{ border: '1px solid rgba(5,5,5,0.06)', borderRadius: 8, padding: 12 }}>
+        <Tree
+          showLine
+          blockNode
+          treeData={grouped ? groupedTreeData : treeData}
+          selectedKeys={selectedId != null ? [selectedId] : []}
+          expandedKeys={expandedKeys}
+          onExpand={(keys) => setExpandedKeys(keys)}
+          onSelect={(keys) => setSelectedId(keys.length ? Number(keys[0]) : null)}
+        />
+      </div>
     );
   }
 
@@ -464,6 +431,16 @@ export function WorkflowPage() {
         </Col>
         <Col flex="none">
           <Space>
+            {view === 'tree' && canGroupByPhase && (
+              <Segmented
+                value={treeGroup}
+                onChange={(v) => setTreeGroup(v as TreeGrouping)}
+                options={[
+                  { label: 'Hierarchy', value: 'hierarchy' },
+                  { label: 'By phase', value: 'phase' },
+                ]}
+              />
+            )}
             <Segmented
               value={view}
               onChange={(v) => setView(v as ViewMode)}
@@ -484,6 +461,40 @@ export function WorkflowPage() {
         </Col>
       </Row>
 
+      {workflow && (workflow.description || workflow.tags.length > 0) && (
+        <Collapse
+          ghost
+          defaultActiveKey={workflow.description ? ['info'] : []}
+          style={{ marginBottom: 8 }}
+          items={[
+            {
+              key: 'info',
+              label: 'Workflow details',
+              children: (
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  {workflow.description ? (
+                    <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
+                      {workflow.description}
+                    </Typography.Paragraph>
+                  ) : (
+                    <Typography.Text type="secondary">No description.</Typography.Text>
+                  )}
+                  {workflow.tags.length > 0 && (
+                    <Space size={4} wrap>
+                      {workflow.tags.map((t) => (
+                        <Tag key={t.id} color={t.color ?? undefined} style={{ marginInlineEnd: 0 }}>
+                          {t.name}
+                        </Tag>
+                      ))}
+                    </Space>
+                  )}
+                </Space>
+              ),
+            },
+          ]}
+        />
+      )}
+
       {isLoading ? (
         <Spin />
       ) : (
@@ -495,14 +506,14 @@ export function WorkflowPage() {
             <StepDetail
               step={selectedStep}
               isAdmin={admin}
-              isEntry={workflow?.entryStepId != null && workflow.entryStepId === selectedStep?.id}
+              isEntry={selectedStep?.id === tree[0]?.id}
+              incoming={selectedStep ? (incomingIndex.get(selectedStep.id) ?? []) : []}
               onEdit={() => selectedStep && setStepModal({ mode: 'edit', step: selectedStep })}
               onAddSub={() => selectedStep && setStepModal({ mode: 'create-sub', parent: selectedStep })}
               onAddTransition={() => setTransitionFor(selectedStep)}
               onDelete={() => selectedStep && removeStep.mutate(selectedStep.id)}
               onDeleteTransition={(t) => removeTransition.mutate(t)}
               onNavigate={navigateTo}
-              onSetEntry={() => selectedStep && setEntry.mutate(selectedStep.id)}
             />
           </Col>
         </Row>

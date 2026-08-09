@@ -18,6 +18,8 @@ import com.dsv.edinav.workflow.dto.WorkflowPhaseDto;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseRequest;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
+import com.dsv.edinav.workflow.dto.WorkflowTagDto;
+import com.dsv.edinav.workflow.dto.WorkflowTagRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +47,7 @@ public class WorkflowService {
     private final WorkflowTransitionRepository transitionRepository;
     private final BusinessRoleRepository roleRepository;
     private final WorkflowPhaseRepository phaseRepository;
+    private final WorkflowTagRepository tagRepository;
     private final ArtifactRepository artifactRepository;
 
     public WorkflowService(WorkflowRepository workflowRepository,
@@ -52,12 +55,14 @@ public class WorkflowService {
                            WorkflowTransitionRepository transitionRepository,
                            BusinessRoleRepository roleRepository,
                            WorkflowPhaseRepository phaseRepository,
+                           WorkflowTagRepository tagRepository,
                            ArtifactRepository artifactRepository) {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
         this.transitionRepository = transitionRepository;
         this.roleRepository = roleRepository;
         this.phaseRepository = phaseRepository;
+        this.tagRepository = tagRepository;
         this.artifactRepository = artifactRepository;
     }
 
@@ -91,8 +96,8 @@ public class WorkflowService {
         workflow.setName(request.name().trim());
         workflow.setDescription(request.description());
         workflow.setStatus(request.status() == null ? WorkflowStatus.DRAFT : parseStatus(request.status()));
-        workflow.setEntryStepId(request.entryStepId());
         workflow.setOrderIndex(workflowRepository.nextOrderIndex());
+        workflow.setTagIds(resolveTagIds(request.tagIds()));
         return toWorkflowDto(saveAsNewGroup(workflow));
     }
 
@@ -119,28 +124,19 @@ public class WorkflowService {
         workflow.setDescription(request.description());
         workflow.setStatus(request.status() == null ? WorkflowStatus.DRAFT : parseStatus(request.status()));
         workflow.setOrderIndex(workflowRepository.nextOrderIndex());
+        workflow.setTagIds(resolveTagNames(request.tags()));
         saveAsNewGroup(workflow);
         populateFromImport(workflow, request);
         return toWorkflowDto(workflow);
     }
 
-    /** Creates the phases, step tree, transitions and entry step of {@code workflow} from an import payload. */
+    /** Creates the phases, step tree and transitions of {@code workflow} from an import payload. */
     private void populateFromImport(Workflow workflow, ImportWorkflowRequest request) {
         Map<String, Long> refToId = new LinkedHashMap<>();
         Map<String, BusinessRole> roleCache = new HashMap<>();
         Map<String, Long> phaseRefToId = importPhases(request.phases(), workflow.getId());
         importSteps(request.steps(), null, workflow.getId(), refToId, roleCache, phaseRefToId);
         importTransitions(request.transitions(), refToId);
-
-        if (request.entryStepRef() != null && !request.entryStepRef().isBlank()) {
-            Long entryId = refToId.get(request.entryStepRef().trim());
-            if (entryId == null) {
-                throw new ApiException(HttpStatus.BAD_REQUEST,
-                        "entryStepRef references an unknown step: " + request.entryStepRef());
-            }
-            workflow.setEntryStepId(entryId);
-            workflowRepository.save(workflow);
-        }
     }
 
     /** Creates a new editable version (deep copy) of a workflow within the same group; not current. */
@@ -157,6 +153,7 @@ public class WorkflowService {
         version.setVersionLabel(request == null ? null : request.label());
         version.setCurrent(false);
         version.setOrderIndex(source.getOrderIndex());
+        version.setTagIds(new ArrayList<>(source.getTagIds()));
         workflowRepository.save(version);
         populateFromImport(version, snapshot);
         return toWorkflowDto(version);
@@ -308,10 +305,13 @@ public class WorkflowService {
                             p.getOrderIndex(), p.getDescription()))
                     .toList();
         }
-        String entryRef = workflow.getEntryStepId() != null && stepIds.contains(workflow.getEntryStepId())
-                ? stepRef(workflow.getEntryStepId()) : null;
+        List<String> tagNames = workflow.getTagIds().isEmpty() ? null
+                : tagRepository.findAllById(workflow.getTagIds()).stream()
+                        .map(WorkflowTag::getName)
+                        .sorted(String.CASE_INSENSITIVE_ORDER)
+                        .toList();
         return new ImportWorkflowRequest(workflow.getName(), workflow.getDescription(),
-                workflow.getStatus().name(), entryRef,
+                workflow.getStatus().name(), tagNames,
                 phaseNodes, stepNodes, transitions);
     }
 
@@ -396,21 +396,13 @@ public class WorkflowService {
 
         importTransitions(request.transitions(), ctx.refToId);
 
-        if (request.entryStepRef() != null && !request.entryStepRef().isBlank()) {
-            Long entryId = ctx.refToId.get(request.entryStepRef().trim());
-            if (entryId == null) {
-                throw new ApiException(HttpStatus.BAD_REQUEST,
-                        "entryStepRef references an unknown step: " + request.entryStepRef());
-            }
-            workflow.setEntryStepId(entryId);
-        } else if (workflow.getEntryStepId() != null && !ctx.refToId.containsValue(workflow.getEntryStepId())) {
-            workflow.setEntryStepId(null);
-        }
-
         workflow.setName(name);
         workflow.setDescription(request.description());
         if (request.status() != null) {
             workflow.setStatus(parseStatus(request.status()));
+        }
+        if (request.tags() != null) {
+            workflow.setTagIds(resolveTagNames(request.tags()));
         }
         return toWorkflowDto(workflowRepository.save(workflow));
     }
@@ -613,7 +605,7 @@ public class WorkflowService {
         if (request.status() != null) {
             workflow.setStatus(parseStatus(request.status()));
         }
-        workflow.setEntryStepId(request.entryStepId());
+        workflow.setTagIds(resolveTagIds(request.tagIds()));
         return toWorkflowDto(workflowRepository.save(workflow));
     }
 
@@ -655,10 +647,15 @@ public class WorkflowService {
     }
 
     private WorkflowDto toWorkflowDto(Workflow w) {
+        List<WorkflowTagDto> tags = w.getTagIds().isEmpty() ? List.of()
+                : tagRepository.findAllById(w.getTagIds()).stream()
+                        .sorted(Comparator.comparing(WorkflowTag::getName, String.CASE_INSENSITIVE_ORDER))
+                        .map(t -> new WorkflowTagDto(t.getId(), t.getName(), t.getColor()))
+                        .toList();
         return new WorkflowDto(w.getId(), w.getName(), w.getDescription(),
-                w.getStatus().name(), w.getEntryStepId(), w.getGroupId(), w.getVersion(),
+                w.getStatus().name(), w.getGroupId(), w.getVersion(),
                 w.getVersionLabel(), w.isCurrent(), w.getOrderIndex(),
-                stepRepository.countByWorkflowId(w.getId()));
+                stepRepository.countByWorkflowId(w.getId()), tags);
     }
 
     private WorkflowStatus parseStatus(String value) {
@@ -709,6 +706,91 @@ public class WorkflowService {
             stepRepository.save(step);
         });
         roleRepository.deleteById(id);
+    }
+
+    // ---------------- Tags ----------------
+
+    @Transactional(readOnly = true)
+    public List<WorkflowTagDto> getTags() {
+        return tagRepository.findAllByOrderByNameAsc().stream().map(this::toTagDto).toList();
+    }
+
+    @Transactional
+    public WorkflowTagDto createTag(WorkflowTagRequest request) {
+        if (tagRepository.existsByNameIgnoreCase(request.name().trim())) {
+            throw new ApiException(HttpStatus.CONFLICT, "Tag name already exists");
+        }
+        WorkflowTag tag = new WorkflowTag();
+        tag.setName(request.name().trim());
+        tag.setColor(request.color());
+        return toTagDto(tagRepository.save(tag));
+    }
+
+    @Transactional
+    public WorkflowTagDto updateTag(Long id, WorkflowTagRequest request) {
+        WorkflowTag tag = tagRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Tag not found"));
+        if (tagRepository.existsByNameIgnoreCaseAndIdNot(request.name().trim(), id)) {
+            throw new ApiException(HttpStatus.CONFLICT, "Tag name already exists");
+        }
+        tag.setName(request.name().trim());
+        tag.setColor(request.color());
+        return toTagDto(tagRepository.save(tag));
+    }
+
+    @Transactional
+    public void deleteTag(Long id) {
+        if (!tagRepository.existsById(id)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Tag not found");
+        }
+        // Detach the tag from any workflow that references it, then delete.
+        workflowRepository.findAll().forEach(w -> {
+            if (w.getTagIds().remove(id)) {
+                workflowRepository.save(w);
+            }
+        });
+        tagRepository.deleteById(id);
+    }
+
+    private WorkflowTagDto toTagDto(WorkflowTag t) {
+        return new WorkflowTagDto(t.getId(), t.getName(), t.getColor());
+    }
+
+    /** Validates that each id exists and returns a de-duplicated mutable list. */
+    private List<Long> resolveTagIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<Long> result = new ArrayList<>(new LinkedHashSet<>(ids));
+        for (Long id : result) {
+            if (!tagRepository.existsById(id)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Tag not found: " + id);
+            }
+        }
+        return result;
+    }
+
+    /** Maps tag names to ids, creating any that do not yet exist (used by import). */
+    private List<Long> resolveTagNames(List<String> names) {
+        List<Long> result = new ArrayList<>();
+        if (names == null) {
+            return result;
+        }
+        for (String raw : names) {
+            if (raw == null || raw.isBlank()) {
+                continue;
+            }
+            String name = raw.trim();
+            WorkflowTag tag = tagRepository.findFirstByNameIgnoreCase(name).orElseGet(() -> {
+                WorkflowTag created = new WorkflowTag();
+                created.setName(name);
+                return tagRepository.save(created);
+            });
+            if (!result.contains(tag.getId())) {
+                result.add(tag.getId());
+            }
+        }
+        return result;
     }
 
     // ---------------- Tree ----------------

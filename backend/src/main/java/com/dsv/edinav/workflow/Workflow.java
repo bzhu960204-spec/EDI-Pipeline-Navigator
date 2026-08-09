@@ -1,14 +1,21 @@
 package com.dsv.edinav.workflow;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A named, savable workflow that holds its own {@link WorkflowStep} tree and transitions.
@@ -34,9 +41,6 @@ public class Workflow {
     @Column(nullable = false, length = 20)
     private WorkflowStatus status = WorkflowStatus.DRAFT;
 
-    /** Entry step of the flow; null until marked. */
-    private Long entryStepId;
-
     /** Groups all versions of one logical workflow; set to the row's own id for a brand-new workflow. */
     private Long groupId;
 
@@ -55,6 +59,12 @@ public class Workflow {
     @Column(nullable = false)
     private int orderIndex;
 
+    /** Ids of {@link WorkflowTag} attached to this workflow, for library grouping/filtering. */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "workflow_tag_link", joinColumns = @JoinColumn(name = "workflow_id"))
+    @Column(name = "tag_id")
+    private List<Long> tagIds = new ArrayList<>();
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -66,9 +76,6 @@ public class Workflow {
 
     public WorkflowStatus getStatus() { return status; }
     public void setStatus(WorkflowStatus status) { this.status = status; }
-
-    public Long getEntryStepId() { return entryStepId; }
-    public void setEntryStepId(Long entryStepId) { this.entryStepId = entryStepId; }
 
     public Long getGroupId() { return groupId; }
     public void setGroupId(Long groupId) { this.groupId = groupId; }
@@ -84,4 +91,7 @@ public class Workflow {
 
     public int getOrderIndex() { return orderIndex; }
     public void setOrderIndex(int orderIndex) { this.orderIndex = orderIndex; }
+
+    public List<Long> getTagIds() { return tagIds; }
+    public void setTagIds(List<Long> tagIds) { this.tagIds = tagIds; }
 }
