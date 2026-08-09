@@ -30,6 +30,15 @@ export interface BusinessRole {
   description?: string | null;
 }
 
+export interface WorkflowPhase {
+  id: number;
+  workflowId: number;
+  name: string;
+  color?: string | null;
+  orderIndex: number;
+  description?: string | null;
+}
+
 export interface Transition {
   id: number;
   fromStepId: number;
@@ -47,7 +56,8 @@ export interface WorkflowStep {
   name: string;
   description?: string | null;
   notes?: string | null;
-  businessRole?: BusinessRole | null;
+  businessRoles: BusinessRole[];
+  phase?: WorkflowPhase | null;
   children: WorkflowStep[];
   transitions: Transition[];
 }
@@ -58,7 +68,8 @@ export interface CreateStepPayload {
   name: string;
   description?: string;
   notes?: string;
-  businessRoleId?: number | null;
+  businessRoleIds?: number[];
+  phaseId?: number | null;
 }
 
 export type UpdateStepPayload = Omit<CreateStepPayload, 'parentId' | 'workflowId'>;
@@ -66,6 +77,13 @@ export type UpdateStepPayload = Omit<CreateStepPayload, 'parentId' | 'workflowId
 export interface BusinessRolePayload {
   name: string;
   color?: string;
+  description?: string;
+}
+
+export interface WorkflowPhasePayload {
+  name: string;
+  color?: string;
+  orderIndex?: number;
   description?: string;
 }
 
@@ -106,7 +124,17 @@ export interface ImportStepNode {
   description?: string;
   notes?: string;
   role?: string;
+  roles?: string[];
+  phase?: string;
   children?: ImportStepNode[];
+}
+
+export interface ImportPhaseNode {
+  ref?: string;
+  name: string;
+  color?: string;
+  orderIndex?: number;
+  description?: string;
 }
 
 export interface ImportTransition {
@@ -121,12 +149,28 @@ export interface ImportWorkflowPayload {
   type?: WorkflowType;
   status?: WorkflowStatus;
   entryStepRef?: string;
+  phases?: ImportPhaseNode[];
   steps?: ImportStepNode[];
   transitions?: ImportTransition[];
 }
 
 export async function importWorkflow(payload: ImportWorkflowPayload): Promise<Workflow> {
   const { data } = await api.post<Workflow>('/workflow/workflows/import', payload);
+  return data;
+}
+
+export async function exportWorkflow(id: number, includePhases: boolean): Promise<ImportWorkflowPayload> {
+  const { data } = await api.get<ImportWorkflowPayload>(`/workflow/workflows/${id}/export`, {
+    params: { includePhases },
+  });
+  return data;
+}
+
+export async function updateWorkflowFromImport(
+  id: number,
+  payload: ImportWorkflowPayload,
+): Promise<Workflow> {
+  const { data } = await api.put<Workflow>(`/workflow/workflows/${id}/import`, payload);
   return data;
 }
 
@@ -241,4 +285,23 @@ export async function updateRole(id: number, payload: BusinessRolePayload): Prom
 
 export async function deleteRole(id: number): Promise<void> {
   await api.delete(`/workflow/roles/${id}`);
+}
+
+export async function fetchPhases(workflowId: number): Promise<WorkflowPhase[]> {
+  const { data } = await api.get<WorkflowPhase[]>(`/workflow/workflows/${workflowId}/phases`);
+  return data;
+}
+
+export async function createPhase(workflowId: number, payload: WorkflowPhasePayload): Promise<WorkflowPhase> {
+  const { data } = await api.post<WorkflowPhase>(`/workflow/workflows/${workflowId}/phases`, payload);
+  return data;
+}
+
+export async function updatePhase(id: number, payload: WorkflowPhasePayload): Promise<WorkflowPhase> {
+  const { data } = await api.put<WorkflowPhase>(`/workflow/phases/${id}`, payload);
+  return data;
+}
+
+export async function deletePhase(id: number): Promise<void> {
+  await api.delete(`/workflow/phases/${id}`);
 }

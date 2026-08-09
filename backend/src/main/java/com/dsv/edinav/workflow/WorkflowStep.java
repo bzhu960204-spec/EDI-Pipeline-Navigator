@@ -1,12 +1,19 @@
 package com.dsv.edinav.workflow;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A node in the single company-wide workflow. Steps form a hierarchy via {@code parentId}
@@ -41,8 +48,14 @@ public class WorkflowStep {
     @Column(length = 4000)
     private String notes;
 
-    /** Responsible business role; null if unassigned. */
-    private Long businessRoleId;
+    /** Responsible business roles; empty if unassigned. A step may be shared by several roles. */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "workflow_step_role", joinColumns = @JoinColumn(name = "step_id"))
+    @Column(name = "business_role_id")
+    private List<Long> businessRoleIds = new ArrayList<>();
+
+    /** Business phase (band) this step belongs to; null if ungrouped. */
+    private Long phaseId;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -65,6 +78,11 @@ public class WorkflowStep {
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
 
-    public Long getBusinessRoleId() { return businessRoleId; }
-    public void setBusinessRoleId(Long businessRoleId) { this.businessRoleId = businessRoleId; }
+    public List<Long> getBusinessRoleIds() { return businessRoleIds; }
+    public void setBusinessRoleIds(List<Long> businessRoleIds) {
+        this.businessRoleIds = businessRoleIds == null ? new ArrayList<>() : businessRoleIds;
+    }
+
+    public Long getPhaseId() { return phaseId; }
+    public void setPhaseId(Long phaseId) { this.phaseId = phaseId; }
 }

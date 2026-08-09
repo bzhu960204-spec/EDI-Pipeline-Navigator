@@ -1,18 +1,20 @@
 import { Form, Input, Modal, Select } from 'antd';
 import { useEffect } from 'react';
-import type { BusinessRole, WorkflowStep } from '../../api/workflow';
+import type { BusinessRole, WorkflowPhase, WorkflowStep } from '../../api/workflow';
 
 export interface StepFormValues {
   name: string;
   description?: string;
   notes?: string;
-  businessRoleId?: number | null;
+  businessRoleIds?: number[];
+  phaseId?: number | null;
 }
 
 interface StepFormModalProps {
   open: boolean;
   title: string;
   roles: BusinessRole[];
+  phases: WorkflowPhase[];
   initial?: WorkflowStep | null;
   confirmLoading?: boolean;
   onCancel: () => void;
@@ -23,6 +25,7 @@ export function StepFormModal({
   open,
   title,
   roles,
+  phases,
   initial,
   confirmLoading,
   onCancel,
@@ -36,7 +39,8 @@ export function StepFormModal({
         name: initial?.name ?? '',
         description: initial?.description ?? '',
         notes: initial?.notes ?? '',
-        businessRoleId: initial?.businessRole?.id ?? null,
+        businessRoleIds: initial?.businessRoles?.map((r) => r.id) ?? [],
+        phaseId: initial?.phase?.id ?? null,
       });
     }
   }, [open, initial, form]);
@@ -59,11 +63,19 @@ export function StepFormModal({
         >
           <Input placeholder="e.g. Map Creation" autoFocus />
         </Form.Item>
-        <Form.Item name="businessRoleId" label="Responsible role">
+        <Form.Item name="businessRoleIds" label="Responsible roles">
           <Select
+            mode="multiple"
             allowClear
             placeholder="Unassigned"
             options={roles.map((r) => ({ value: r.id, label: r.name }))}
+          />
+        </Form.Item>
+        <Form.Item name="phaseId" label="Phase">
+          <Select
+            allowClear
+            placeholder="Ungrouped"
+            options={phases.map((p) => ({ value: p.id, label: p.name }))}
           />
         </Form.Item>
         <Form.Item name="description" label="Description">

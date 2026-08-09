@@ -9,6 +9,7 @@ public interface WorkflowRepository extends JpaRepository<Workflow, Long> {
     List<Workflow> findByTypeOrderByOrderIndexAsc(WorkflowType type);
     List<Workflow> findByTypeAndStatusOrderByOrderIndexAsc(WorkflowType type, WorkflowStatus status);
     boolean existsByNameIgnoreCase(String name);
+    boolean existsByNameIgnoreCaseAndIdNot(String name, Long id);
 
     default int nextOrderIndex() {
         List<Workflow> all = findAllByOrderByOrderIndexAsc();

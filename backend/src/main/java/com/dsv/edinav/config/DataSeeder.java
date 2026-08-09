@@ -23,6 +23,9 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Component
 public class DataSeeder implements CommandLineRunner {
 
@@ -154,7 +157,11 @@ public class DataSeeder implements CommandLineRunner {
         step.setParentId(parentId);
         step.setOrderIndex(orderIndex);
         step.setName(name);
-        step.setBusinessRoleId(roleId);
+        List<Long> roleIds = new ArrayList<>();
+        if (roleId != null) {
+            roleIds.add(roleId);
+        }
+        step.setBusinessRoleIds(roleIds);
         step.setDescription(description);
         return stepRepository.save(step).getId();
     }

@@ -16,6 +16,7 @@ public record ImportWorkflowRequest(
         @Size(max = 20) String type,
         @Size(max = 20) String status,
         String entryStepRef,
+        List<ImportPhaseNode> phases,
         List<ImportStepNode> steps,
         List<ImportTransition> transitions
 ) {}

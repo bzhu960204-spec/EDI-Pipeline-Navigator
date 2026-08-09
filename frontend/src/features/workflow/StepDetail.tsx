@@ -48,7 +48,12 @@ export function StepDetail({
         <Space>
           <span>{step.name}</span>
           {isEntry && <Tag color="green">entry</Tag>}
-          {step.businessRole && <Tag color={step.businessRole.color ?? undefined}>{step.businessRole.name}</Tag>}
+          {step.phase && <Tag color={step.phase.color ?? undefined}>{step.phase.name}</Tag>}
+          {step.businessRoles.map((r) => (
+            <Tag key={r.id} color={r.color ?? undefined}>
+              {r.name}
+            </Tag>
+          ))}
         </Space>
       }
       extra={

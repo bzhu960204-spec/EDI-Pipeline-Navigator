@@ -12,6 +12,8 @@ import com.dsv.edinav.workflow.dto.WorkflowCompositeDto;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
 import com.dsv.edinav.workflow.dto.WorkflowLinkDto;
 import com.dsv.edinav.workflow.dto.WorkflowLinkRequest;
+import com.dsv.edinav.workflow.dto.WorkflowPhaseDto;
+import com.dsv.edinav.workflow.dto.WorkflowPhaseRequest;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
 import jakarta.validation.Valid;
@@ -73,6 +75,19 @@ public class WorkflowController {
     @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto importWorkflow(@Valid @RequestBody ImportWorkflowRequest request) {
         return workflowService.importWorkflow(request);
+    }
+
+    @GetMapping("/workflows/{id}/export")
+    public ImportWorkflowRequest exportWorkflow(@PathVariable Long id,
+                                                @RequestParam(defaultValue = "false") boolean includePhases) {
+        return workflowService.exportWorkflow(id, includePhases);
+    }
+
+    @PutMapping("/workflows/{id}/import")
+    @PreAuthorize("hasRole('ADMIN')")
+    public WorkflowDto updateWorkflowFromImport(@PathVariable Long id,
+                                                @Valid @RequestBody ImportWorkflowRequest request) {
+        return workflowService.updateWorkflowFromImport(id, request);
     }
 
     @PutMapping("/workflows/{id}")
@@ -185,5 +200,31 @@ public class WorkflowController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteRole(@PathVariable Long id) {
         workflowService.deleteRole(id);
+    }
+
+    // ----- Phases (scoped to a workflow) -----
+
+    @GetMapping("/workflows/{id}/phases")
+    public List<WorkflowPhaseDto> getPhases(@PathVariable Long id) {
+        return workflowService.getPhases(id);
+    }
+
+    @PostMapping("/workflows/{id}/phases")
+    @PreAuthorize("hasRole('ADMIN')")
+    public WorkflowPhaseDto createPhase(@PathVariable Long id, @Valid @RequestBody WorkflowPhaseRequest request) {
+        return workflowService.createPhase(id, request);
+    }
+
+    @PutMapping("/phases/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public WorkflowPhaseDto updatePhase(@PathVariable Long id, @Valid @RequestBody WorkflowPhaseRequest request) {
+        return workflowService.updatePhase(id, request);
+    }
+
+    @DeleteMapping("/phases/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deletePhase(@PathVariable Long id) {
+        workflowService.deletePhase(id);
     }
 }

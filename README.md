@@ -92,7 +92,8 @@ one transaction — any error rolls it all back. Only `SUB` workflows are suppor
 | `steps[].ref` | ✅ | Unique key within the file (used by transitions/entry) |
 | `steps[].name` | ✅ | Step name |
 | `steps[].description` / `notes` | | Free text |
-| `steps[].role` | | Business role name (resolved by name, auto-created) |
+| `steps[].roles` | | Business role names (array; resolved by name, auto-created). A step may have several. |
+| `steps[].role` | | Legacy single role name; still accepted and merged with `roles` |
 | `steps[].children[]` | | Nested child steps (same shape) |
 | `transitions[]` | | Branching edges; `from`/`to` are step `ref`s, `label` is the condition |
 
@@ -111,12 +112,12 @@ one transaction — any error rolls it all back. Only `SUB` workflows are suppor
       "name": "Receive EDI file",
       "description": "Pick up inbound EDI from the LW mailbox",
       "notes": "Runs every 5 min",
-      "role": "EDI Developer",   // resolved by name, created if missing
+      "roles": ["EDI Developer", "QA"],  // names, resolved/created; a step may have several
       "children": [
-        { "ref": "validate", "name": "Validate envelope", "role": "QA" }
+        { "ref": "validate", "name": "Validate envelope", "roles": ["QA"] }
       ]
     },
-    { "ref": "parse",  "name": "Parse segments",  "role": "EDI Developer" },
+    { "ref": "parse",  "name": "Parse segments",  "roles": ["EDI Developer"] },
     { "ref": "reject", "name": "Reject & notify", "role": "QA" }
   ],
   "transitions": [

@@ -10,7 +10,8 @@ public record WorkflowStepDto(
         String name,
         String description,
         String notes,
-        BusinessRoleDto businessRole,
+        List<BusinessRoleDto> businessRoles,
+        WorkflowPhaseDto phase,
         List<WorkflowStepDto> children,
         List<TransitionDto> transitions
 ) {}
