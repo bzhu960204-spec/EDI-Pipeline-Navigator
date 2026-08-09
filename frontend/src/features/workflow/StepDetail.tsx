@@ -18,6 +18,8 @@ interface StepDetailProps {
   isAdmin: boolean;
   isEntry?: boolean;
   incoming?: IncomingRef[];
+  pickerDirection?: 'next' | 'previous';
+  pickerIndex?: number;
   onEdit: () => void;
   onAddSub: () => void;
   onAddTransition: () => void;
@@ -31,6 +33,8 @@ export function StepDetail({
   isAdmin,
   isEntry,
   incoming = [],
+  pickerDirection,
+  pickerIndex,
   onEdit,
   onAddSub,
   onAddTransition,
@@ -47,6 +51,13 @@ export function StepDetail({
     setActiveTab(key);
     localStorage.setItem('stepDetail.stepsTab', key);
   };
+
+  // A pending keyboard branch/merge pick forces the matching tab open and highlights a row.
+  const effectiveTab = pickerDirection ?? activeTab;
+  const highlightStyle = (active: boolean): React.CSSProperties =>
+    active
+      ? { background: 'rgba(22,119,255,0.12)', borderRadius: 6, outline: '1px solid rgba(22,119,255,0.4)' }
+      : {};
 
   if (!step) {
     return (
@@ -92,8 +103,11 @@ export function StepDetail({
           <Typography.Text type="secondary">No outgoing transitions (end of flow).</Typography.Text>
         ) : (
           <Space direction="vertical" style={{ width: '100%' }}>
-            {step.transitions.map((t) => (
-              <Space key={t.id} style={{ justifyContent: 'space-between', width: '100%' }}>
+            {step.transitions.map((t, i) => (
+              <Space
+                key={t.id}
+                style={{ justifyContent: 'space-between', width: '100%', padding: '2px 6px', ...highlightStyle(pickerDirection === 'next' && pickerIndex === i) }}
+              >
                 <Space>
                   {t.label && <Tag>{t.label}</Tag>}
                   <ArrowRightOutlined />
@@ -127,8 +141,11 @@ export function StepDetail({
           </Typography.Text>
         ) : (
           <Space direction="vertical" style={{ width: '100%' }}>
-            {incoming.map((inc) => (
-              <Space key={inc.transition.id} style={{ justifyContent: 'space-between', width: '100%' }}>
+            {incoming.map((inc, i) => (
+              <Space
+                key={inc.transition.id}
+                style={{ justifyContent: 'space-between', width: '100%', padding: '2px 6px', ...highlightStyle(pickerDirection === 'previous' && pickerIndex === i) }}
+              >
                 <Space>
                   {inc.transition.label && <Tag>{inc.transition.label}</Tag>}
                   {inc.isRollback && <Tag color="red">rollback</Tag>}
@@ -184,7 +201,7 @@ export function StepDetail({
 
       <Tabs
         style={{ marginTop: 16 }}
-        activeKey={activeTab}
+        activeKey={effectiveTab}
         onChange={handleTabChange}
         items={tabItems}
       />

@@ -1,6 +1,6 @@
-import { Button, Card, Form, Input, Typography, App as AntApp } from 'antd';
+import { Button, Card, Form, Input, Typography, App as AntApp, theme } from 'antd';
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { login, type LoginPayload } from '../../api/auth';
 import { extractErrorMessage } from '../../api/client';
@@ -11,10 +11,18 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { message } = AntApp.useApp();
+  const { token } = theme.useToken();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [loading, setLoading] = useState(false);
 
   const from = (location.state as { from?: string } | null)?.from ?? '/';
+
+  useEffect(() => {
+    if (sessionStorage.getItem('edinav-session-expired')) {
+      sessionStorage.removeItem('edinav-session-expired');
+      message.warning('Your session has expired. Please sign in again.');
+    }
+  }, [message]);
 
   const onFinish = async (values: LoginPayload) => {
     setLoading(true);
@@ -31,11 +39,11 @@ export function LoginPage() {
   };
 
   return (
-    <div style={styles.wrapper}>
+    <div style={{ ...styles.wrapper, background: token.colorBgLayout }}>
       <div style={styles.topBar}>
         <ThemeSwitcher />
       </div>
-      <Card style={styles.card} variant="borderless">
+      <Card style={{ ...styles.card, boxShadow: token.boxShadowSecondary }} variant="borderless">
         <Typography.Title level={3} style={{ marginBottom: 4 }}>
           EDI Pipeline Navigator
         </Typography.Title>
@@ -84,6 +92,5 @@ const styles: Record<string, React.CSSProperties> = {
   },
   card: {
     width: 380,
-    boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
   },
 };

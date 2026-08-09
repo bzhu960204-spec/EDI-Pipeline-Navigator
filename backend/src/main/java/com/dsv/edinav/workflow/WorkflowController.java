@@ -105,6 +105,12 @@ public class WorkflowController {
         return workflowService.createVersion(id, request);
     }
 
+    @PutMapping("/workflows/{id}/version-label")
+    @PreAuthorize("hasRole('ADMIN')")
+    public WorkflowDto updateVersionLabel(@PathVariable Long id, @Valid @RequestBody CreateVersionRequest request) {
+        return workflowService.updateVersionLabel(id, request == null ? null : request.label());
+    }
+
     @PostMapping("/workflows/{id}/set-current")
     @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto setCurrent(@PathVariable Long id) {

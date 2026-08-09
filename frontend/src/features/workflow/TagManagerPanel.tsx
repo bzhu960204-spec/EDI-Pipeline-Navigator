@@ -1,4 +1,4 @@
-import { App as AntApp, Button, Card, ColorPicker, Form, Input, List, Popconfirm, Tag } from 'antd';
+import { App as AntApp, Button, Card, Form, Input, List, Popconfirm, Tag } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -10,9 +10,7 @@ import {
   type WorkflowTagPayload,
 } from '../../api/workflow';
 import { extractErrorMessage } from '../../api/client';
-
-/** Minimal shape of AntD ColorPicker's value that we rely on. */
-type ColorLike = { toHexString: () => string };
+import { colorForTag } from './tagColor';
 
 interface TagManagerPanelProps {
   tags: WorkflowTag[];
@@ -23,7 +21,7 @@ interface TagManagerPanelProps {
 export function TagManagerPanel({ tags, editable = true }: Readonly<TagManagerPanelProps>) {
   const { message } = AntApp.useApp();
   const queryClient = useQueryClient();
-  const [form] = Form.useForm<{ name: string; color: string }>();
+  const [form] = Form.useForm<{ name: string }>();
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const invalidate = () => {
@@ -54,12 +52,7 @@ export function TagManagerPanel({ tags, editable = true }: Readonly<TagManagerPa
 
   const startEdit = (tag: WorkflowTag) => {
     setEditingId(tag.id);
-    form.setFieldsValue({ name: tag.name, color: tag.color ?? '#1677ff' });
-  };
-
-  const normalizeColor = (value: string | ColorLike | undefined): string | undefined => {
-    if (!value) return undefined;
-    return typeof value === 'string' ? value : value.toHexString();
+    form.setFieldsValue({ name: tag.name });
   };
 
   return (
@@ -68,17 +61,11 @@ export function TagManagerPanel({ tags, editable = true }: Readonly<TagManagerPa
         <Form
           form={form}
           layout="inline"
-          initialValues={{ color: '#1677ff' }}
-          onFinish={(values) =>
-            saveMutation.mutate({ name: values.name, color: normalizeColor(values.color) })
-          }
+          onFinish={(values) => saveMutation.mutate({ name: values.name })}
           style={{ marginBottom: 16, rowGap: 8, flexWrap: 'wrap' }}
         >
           <Form.Item name="name" rules={[{ required: true, message: 'Name' }]}>
             <Input placeholder="Tag name" style={{ width: 160 }} />
-          </Form.Item>
-          <Form.Item name="color" getValueFromEvent={(c) => normalizeColor(c)}>
-            <ColorPicker />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" icon={<PlusOutlined />} loading={saveMutation.isPending}>
@@ -125,7 +112,7 @@ export function TagManagerPanel({ tags, editable = true }: Readonly<TagManagerPa
                 : undefined
             }
           >
-            <Tag color={tag.color ?? undefined}>{tag.name}</Tag>
+            <Tag color={colorForTag(tag.name)}>{tag.name}</Tag>
           </List.Item>
         )}
       />

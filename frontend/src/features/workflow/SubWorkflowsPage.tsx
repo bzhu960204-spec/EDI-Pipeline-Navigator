@@ -203,22 +203,6 @@ export function SubWorkflowsPage() {
       width: 120,
       render: (status: WorkflowStatus) => <Tag color={statusColor(status)}>{status}</Tag>,
     },
-    {
-      title: 'Tags',
-      key: 'tags',
-      render: (_, wf) =>
-        wf.tags.length > 0 ? (
-          <Space size={4} wrap>
-            {wf.tags.map((t) => (
-              <Tag key={t.id} color={t.color ?? undefined} style={{ marginInlineEnd: 0 }}>
-                {t.name}
-              </Tag>
-            ))}
-          </Space>
-        ) : (
-          <Typography.Text type="secondary">—</Typography.Text>
-        ),
-    },
     { title: 'Steps', dataIndex: 'stepCount', width: 80 },
     {
       title: 'Actions',

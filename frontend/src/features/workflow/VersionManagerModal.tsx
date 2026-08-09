@@ -12,7 +12,13 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { BranchesOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import {
+  BranchesOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  PlusOutlined,
+  TagOutlined,
+} from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -21,6 +27,7 @@ import {
   fetchVersions,
   fetchWorkflowTree,
   setCurrentVersion,
+  updateVersionLabel,
   type Workflow,
   type WorkflowStep,
 } from '../../api/workflow';
@@ -143,6 +150,8 @@ export function VersionManagerModal({ open, workflowId, admin, onClose }: Versio
   const [compareIds, setCompareIds] = useState<[number, number] | null>(null);
   const [labelOpen, setLabelOpen] = useState(false);
   const [label, setLabel] = useState('');
+  const [editTarget, setEditTarget] = useState<Workflow | null>(null);
+  const [editLabel, setEditLabel] = useState('');
 
   const { data: versions = [], isLoading } = useQuery({
     queryKey: ['versions', workflowId],
@@ -173,6 +182,17 @@ export function VersionManagerModal({ open, workflowId, admin, onClose }: Versio
       invalidate();
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to set current version')),
+  });
+
+  const saveLabel = useMutation({
+    mutationFn: (vars: { id: number; value: string }) =>
+      updateVersionLabel(vars.id, vars.value || undefined),
+    onSuccess: () => {
+      message.success('Label updated');
+      setEditTarget(null);
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to update label')),
   });
 
   const remove = useMutation({
@@ -219,7 +239,7 @@ export function VersionManagerModal({ open, workflowId, admin, onClose }: Versio
     {
       title: 'Actions',
       key: 'actions',
-      width: 260,
+      width: 330,
       render: (_, wf) => (
         <Space>
           <Button
@@ -232,6 +252,18 @@ export function VersionManagerModal({ open, workflowId, admin, onClose }: Versio
           >
             Open
           </Button>
+          {admin && (
+            <Button
+              size="small"
+              icon={<TagOutlined />}
+              onClick={() => {
+                setEditTarget(wf);
+                setEditLabel(wf.versionLabel ?? '');
+              }}
+            >
+              Label
+            </Button>
+          )}
           {admin && !wf.isCurrent && (
             <Button size="small" onClick={() => promote.mutate(wf.id)}>
               Set current
@@ -301,6 +333,28 @@ export function VersionManagerModal({ open, workflowId, admin, onClose }: Versio
           maxLength={200}
           placeholder="e.g. before Schenker field fix"
           onChange={(e) => setLabel(e.target.value)}
+        />
+      </Modal>
+
+      <Modal
+        open={editTarget !== null}
+        title={editTarget ? `Edit label — v${editTarget.version}` : 'Edit label'}
+        okText="Save"
+        confirmLoading={saveLabel.isPending}
+        onCancel={() => setEditTarget(null)}
+        onOk={() => editTarget && saveLabel.mutate({ id: editTarget.id, value: editLabel.trim() })}
+      >
+        <Typography.Paragraph type="secondary">
+          Update the label/remark for this version. Leave empty to clear it.
+        </Typography.Paragraph>
+        <Input
+          value={editLabel}
+          maxLength={200}
+          placeholder="e.g. before Schenker field fix"
+          onChange={(e) => setEditLabel(e.target.value)}
+          onPressEnter={() =>
+            editTarget && saveLabel.mutate({ id: editTarget.id, value: editLabel.trim() })
+          }
         />
       </Modal>
 

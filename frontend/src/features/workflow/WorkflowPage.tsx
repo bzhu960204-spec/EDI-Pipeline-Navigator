@@ -27,6 +27,8 @@ import {
 import { extractErrorMessage } from '../../api/client';
 import { isAdmin, useAuthStore } from '../auth/authStore';
 import { buildIncomingIndex, findStep } from './workflowUtils';
+import { useFlowNavigation } from './useFlowNavigation';
+import { colorForTag } from './tagColor';
 import { StepDetail } from './StepDetail';
 import { StepFormModal, type StepFormValues } from './StepFormModal';
 import { TransitionFormModal } from './TransitionFormModal';
@@ -151,6 +153,7 @@ export function WorkflowPage() {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [updateText, setUpdateText] = useState('');
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [navFocused, setNavFocused] = useState(false);
 
   const { data: workflow } = useQuery({
     queryKey: ['workflows', workflowId],
@@ -351,6 +354,15 @@ export function WorkflowPage() {
     setExpandedKeys((prev) => Array.from(new Set([...prev, ...keys])));
   };
 
+  const { picker, onKeyDown } = useFlowNavigation({
+    tree,
+    selectedId,
+    selectedStep,
+    incomingIndex,
+    navigateTo,
+    enabled: view === 'tree',
+  });
+
   let modalTitle = 'Add root step';
   if (stepModal?.mode === 'edit') {
     modalTitle = 'Edit step';
@@ -423,7 +435,23 @@ export function WorkflowPage() {
     );
   } else {
     leftPanel = (
-      <div ref={treeScrollRef} style={{ border: '1px solid rgba(5,5,5,0.06)', borderRadius: 8, padding: 12 }}>
+      <div
+        ref={treeScrollRef}
+        tabIndex={0}
+        role="tree"
+        aria-label="Workflow steps — use arrow keys to navigate"
+        onKeyDownCapture={onKeyDown}
+        onFocus={() => setNavFocused(true)}
+        onBlur={() => setNavFocused(false)}
+        style={{
+          border: '1px solid rgba(5,5,5,0.06)',
+          borderRadius: 8,
+          padding: 12,
+          outline: 'none',
+          boxShadow: navFocused ? '0 0 0 2px rgba(22,119,255,0.35)' : undefined,
+          transition: 'box-shadow 0.15s',
+        }}
+      >
         <Tree
           showLine
           blockNode
@@ -433,6 +461,9 @@ export function WorkflowPage() {
           onExpand={(keys) => setExpandedKeys(keys)}
           onSelect={(keys) => setSelectedId(keys.length ? Number(keys[0]) : null)}
         />
+        <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+          Keyboard: ↑/↓ browse · → / Enter next (pick a branch) · ← back · Esc cancel · Home entry
+        </Typography.Text>
       </div>
     );
   }
@@ -524,7 +555,7 @@ export function WorkflowPage() {
                   {workflow.tags.length > 0 && (
                     <Space size={4} wrap>
                       {workflow.tags.map((t) => (
-                        <Tag key={t.id} color={t.color ?? undefined} style={{ marginInlineEnd: 0 }}>
+                        <Tag key={t.id} color={colorForTag(t.name)} style={{ marginInlineEnd: 0 }}>
                           {t.name}
                         </Tag>
                       ))}
@@ -551,6 +582,8 @@ export function WorkflowPage() {
               isAdmin={admin}
               isEntry={selectedStep?.id === tree[0]?.id}
               incoming={selectedStep ? (incomingIndex.get(selectedStep.id) ?? []) : []}
+              pickerDirection={view === 'tree' ? picker?.direction : undefined}
+              pickerIndex={view === 'tree' ? picker?.index : undefined}
               onEdit={() => selectedStep && setStepModal({ mode: 'edit', step: selectedStep })}
               onAddSub={() => selectedStep && setStepModal({ mode: 'create-sub', parent: selectedStep })}
               onAddTransition={() => setTransitionFor(selectedStep)}

@@ -1,4 +1,4 @@
-import { Button, Card, Form, Input, Typography, App as AntApp } from 'antd';
+import { Button, Card, Form, Input, Typography, App as AntApp, theme } from 'antd';
 import { IdcardOutlined, LockOutlined, UserOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -10,6 +10,7 @@ import { ThemeSwitcher } from '../../theme/ThemeSwitcher';
 export function RegisterPage() {
   const navigate = useNavigate();
   const { message } = AntApp.useApp();
+  const { token } = theme.useToken();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [loading, setLoading] = useState(false);
 
@@ -28,11 +29,11 @@ export function RegisterPage() {
   };
 
   return (
-    <div style={styles.wrapper}>
+    <div style={{ ...styles.wrapper, background: token.colorBgLayout }}>
       <div style={styles.topBar}>
         <ThemeSwitcher />
       </div>
-      <Card style={styles.card} variant="borderless">
+      <Card style={{ ...styles.card, boxShadow: token.boxShadowSecondary }} variant="borderless">
         <Typography.Title level={3} style={{ marginBottom: 4 }}>
           Create your account
         </Typography.Title>
@@ -84,6 +85,5 @@ const styles: Record<string, React.CSSProperties> = {
   },
   card: {
     width: 380,
-    boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
   },
 };

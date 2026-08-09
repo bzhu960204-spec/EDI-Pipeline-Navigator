@@ -140,6 +140,11 @@ export async function setCurrentVersion(id: number): Promise<Workflow> {
   return data;
 }
 
+export async function updateVersionLabel(id: number, label?: string): Promise<Workflow> {
+  const { data } = await api.put<Workflow>(`/workflow/workflows/${id}/version-label`, { label });
+  return data;
+}
+
 export async function createWorkflow(payload: WorkflowPayload): Promise<Workflow> {
   const { data } = await api.post<Workflow>('/workflow/workflows', payload);
   return data;

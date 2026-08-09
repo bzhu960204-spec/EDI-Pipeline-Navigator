@@ -159,6 +159,15 @@ public class WorkflowService {
         return toWorkflowDto(version);
     }
 
+    /** Updates only the (optional) label/remark of a single version. */
+    @Transactional
+    public WorkflowDto updateVersionLabel(Long id, String label) {
+        Workflow workflow = requireWorkflow(id);
+        String trimmed = label == null ? null : label.trim();
+        workflow.setVersionLabel(trimmed == null || trimmed.isEmpty() ? null : trimmed);
+        return toWorkflowDto(workflowRepository.save(workflow));
+    }
+
     /** Makes the given version the current one for its group, unsetting the flag on its siblings. */
     @Transactional
     public WorkflowDto setCurrent(Long id) {

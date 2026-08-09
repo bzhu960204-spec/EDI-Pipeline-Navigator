@@ -2,6 +2,7 @@ package com.dsv.edinav.config;
 
 import com.dsv.edinav.security.JwtAuthFilter;
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -43,6 +44,10 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .headers(headers -> headers.frameOptions(frame -> frame.disable())) // H2 console
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // Unauthenticated/expired-token requests must return 401 (not the default 403) so the
+            // frontend can distinguish "log in again" from a genuine permission denial (403).
+            .exceptionHandling(ex -> ex.authenticationEntryPoint(
+                    (request, response, authException) -> response.sendError(HttpServletResponse.SC_UNAUTHORIZED)))
             .authorizeHttpRequests(auth -> auth
                 // Internal re-dispatches of an already-authorized request (e.g. async streaming
                 // for ZIP export, error forwarding) must not be re-authorized without the JWT filter.

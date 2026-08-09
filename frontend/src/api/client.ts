@@ -23,6 +23,8 @@ api.interceptors.response.use(
       if (token) {
         clear();
         if (window.location.pathname !== '/login') {
+          // Flag read (and cleared) by LoginPage to explain the forced sign-out.
+          sessionStorage.setItem('edinav-session-expired', '1');
           window.location.assign('/login');
         }
       }
