@@ -34,7 +34,7 @@ export function AppLayout() {
       icon: <ApartmentOutlined />,
       label: 'Procedure Orchestrator',
       children: [
-        { key: '/workflow', icon: <PartitionOutlined />, label: 'Sub-Workflows' },
+        { key: '/workflow', icon: <PartitionOutlined />, label: 'Workflows' },
         { key: '/workflow/roles', icon: <TeamOutlined />, label: 'Roles' },
       ],
     },

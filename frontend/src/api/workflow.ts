@@ -1,16 +1,17 @@
 import { api } from './client';
 
-export type WorkflowType = 'SUB' | 'MASTER';
 export type WorkflowStatus = 'DRAFT' | 'PUBLISHED';
 
 export interface Workflow {
   id: number;
   name: string;
   description?: string | null;
-  type: WorkflowType;
   status: WorkflowStatus;
   entryStepId?: number | null;
+  groupId: number;
   version: number;
+  versionLabel?: string | null;
+  isCurrent: boolean;
   orderIndex: number;
   stepCount: number;
 }
@@ -18,7 +19,6 @@ export interface Workflow {
 export interface WorkflowPayload {
   name: string;
   description?: string;
-  type?: WorkflowType;
   status?: WorkflowStatus;
   entryStepId?: number | null;
 }
@@ -103,13 +103,28 @@ export async function fetchAllSteps(): Promise<WorkflowStep[]> {
   return data;
 }
 
-export async function fetchWorkflows(params?: { type?: WorkflowType; status?: WorkflowStatus }): Promise<Workflow[]> {
-  const { data } = await api.get<Workflow[]>('/workflow/workflows', { params });
+export async function fetchWorkflows(): Promise<Workflow[]> {
+  const { data } = await api.get<Workflow[]>('/workflow/workflows');
   return data;
 }
 
 export async function fetchWorkflow(id: number): Promise<Workflow> {
   const { data } = await api.get<Workflow>(`/workflow/workflows/${id}`);
+  return data;
+}
+
+export async function fetchVersions(id: number): Promise<Workflow[]> {
+  const { data } = await api.get<Workflow[]>(`/workflow/workflows/${id}/versions`);
+  return data;
+}
+
+export async function createVersion(id: number, label?: string): Promise<Workflow> {
+  const { data } = await api.post<Workflow>(`/workflow/workflows/${id}/versions`, { label });
+  return data;
+}
+
+export async function setCurrentVersion(id: number): Promise<Workflow> {
+  const { data } = await api.post<Workflow>(`/workflow/workflows/${id}/set-current`);
   return data;
 }
 
@@ -146,7 +161,6 @@ export interface ImportTransition {
 export interface ImportWorkflowPayload {
   name: string;
   description?: string;
-  type?: WorkflowType;
   status?: WorkflowStatus;
   entryStepRef?: string;
   phases?: ImportPhaseNode[];
@@ -181,63 +195,6 @@ export async function updateWorkflow(id: number, payload: WorkflowPayload): Prom
 
 export async function deleteWorkflow(id: number): Promise<void> {
   await api.delete(`/workflow/workflows/${id}`);
-}
-
-export interface WorkflowLink {
-  id: number;
-  masterWorkflowId: number;
-  fromWorkflowId: number;
-  fromExitStepId: number | null;
-  fromExitStepName: string | null;
-  toWorkflowId: number;
-  toEntryStepId: number | null;
-  toEntryStepName: string | null;
-  label?: string | null;
-  orderIndex: number;
-}
-
-export interface CompositeMember {
-  workflow: Workflow;
-  tree: WorkflowStep[];
-}
-
-export interface WorkflowComposite {
-  master: Workflow;
-  members: CompositeMember[];
-  links: WorkflowLink[];
-}
-
-export interface WorkflowLinkPayload {
-  masterWorkflowId: number;
-  fromWorkflowId: number;
-  fromExitStepId?: number | null;
-  toWorkflowId: number;
-  toEntryStepId?: number | null;
-  label?: string;
-}
-
-export async function fetchComposite(masterId: number): Promise<WorkflowComposite> {
-  const { data } = await api.get<WorkflowComposite>(`/workflow/workflows/${masterId}/composite`);
-  return data;
-}
-
-export async function addMember(masterId: number, subWorkflowId: number): Promise<WorkflowComposite> {
-  const { data } = await api.post<WorkflowComposite>(`/workflow/workflows/${masterId}/members`, { subWorkflowId });
-  return data;
-}
-
-export async function removeMember(masterId: number, subId: number): Promise<WorkflowComposite> {
-  const { data } = await api.delete<WorkflowComposite>(`/workflow/workflows/${masterId}/members/${subId}`);
-  return data;
-}
-
-export async function createLink(payload: WorkflowLinkPayload): Promise<WorkflowLink> {
-  const { data } = await api.post<WorkflowLink>('/workflow/links', payload);
-  return data;
-}
-
-export async function deleteLink(id: number): Promise<void> {
-  await api.delete(`/workflow/links/${id}`);
 }
 
 export async function createStep(payload: CreateStepPayload): Promise<WorkflowStep> {

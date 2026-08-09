@@ -13,7 +13,6 @@ import java.util.List;
 public record ImportWorkflowRequest(
         @NotBlank @Size(max = 200) String name,
         @Size(max = 4000) String description,
-        @Size(max = 20) String type,
         @Size(max = 20) String status,
         String entryStepRef,
         List<ImportPhaseNode> phases,

@@ -2,22 +2,18 @@ package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.common.ApiException;
 import com.dsv.edinav.artifact.ArtifactRepository;
-import com.dsv.edinav.workflow.dto.AddMemberRequest;
 import com.dsv.edinav.workflow.dto.BusinessRoleDto;
 import com.dsv.edinav.workflow.dto.BusinessRoleRequest;
-import com.dsv.edinav.workflow.dto.CompositeMemberDto;
 import com.dsv.edinav.workflow.dto.CreateStepRequest;
 import com.dsv.edinav.workflow.dto.CreateTransitionRequest;
+import com.dsv.edinav.workflow.dto.CreateVersionRequest;
 import com.dsv.edinav.workflow.dto.ImportPhaseNode;
 import com.dsv.edinav.workflow.dto.ImportStepNode;
 import com.dsv.edinav.workflow.dto.ImportTransition;
 import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
 import com.dsv.edinav.workflow.dto.TransitionDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
-import com.dsv.edinav.workflow.dto.WorkflowCompositeDto;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
-import com.dsv.edinav.workflow.dto.WorkflowLinkDto;
-import com.dsv.edinav.workflow.dto.WorkflowLinkRequest;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseDto;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseRequest;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
@@ -49,8 +45,6 @@ public class WorkflowService {
     private final WorkflowTransitionRepository transitionRepository;
     private final BusinessRoleRepository roleRepository;
     private final WorkflowPhaseRepository phaseRepository;
-    private final WorkflowCompositionRepository compositionRepository;
-    private final WorkflowLinkRepository linkRepository;
     private final ArtifactRepository artifactRepository;
 
     public WorkflowService(WorkflowRepository workflowRepository,
@@ -58,39 +52,34 @@ public class WorkflowService {
                            WorkflowTransitionRepository transitionRepository,
                            BusinessRoleRepository roleRepository,
                            WorkflowPhaseRepository phaseRepository,
-                           WorkflowCompositionRepository compositionRepository,
-                           WorkflowLinkRepository linkRepository,
                            ArtifactRepository artifactRepository) {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
         this.transitionRepository = transitionRepository;
         this.roleRepository = roleRepository;
         this.phaseRepository = phaseRepository;
-        this.compositionRepository = compositionRepository;
-        this.linkRepository = linkRepository;
         this.artifactRepository = artifactRepository;
     }
 
     // ---------------- Workflows (containers) ----------------
 
     @Transactional(readOnly = true)
-    public List<WorkflowDto> getWorkflows(String type, String status) {
-        List<Workflow> workflows;
-        WorkflowType t = type == null ? null : parseType(type);
-        WorkflowStatus s = status == null ? null : parseStatus(status);
-        if (t != null && s != null) {
-            workflows = workflowRepository.findByTypeAndStatusOrderByOrderIndexAsc(t, s);
-        } else if (t != null) {
-            workflows = workflowRepository.findByTypeOrderByOrderIndexAsc(t);
-        } else {
-            workflows = workflowRepository.findAllByOrderByOrderIndexAsc();
-        }
-        return workflows.stream().map(this::toWorkflowDto).toList();
+    public List<WorkflowDto> getWorkflows() {
+        return workflowRepository.findByIsCurrentTrueOrderByOrderIndexAsc().stream()
+                .map(this::toWorkflowDto).toList();
     }
 
     @Transactional(readOnly = true)
     public WorkflowDto getWorkflow(Long id) {
         return toWorkflowDto(requireWorkflow(id));
+    }
+
+    /** Lists every version of the logical workflow the given id belongs to, oldest first. */
+    @Transactional(readOnly = true)
+    public List<WorkflowDto> getVersions(Long id) {
+        Workflow workflow = requireWorkflow(id);
+        return workflowRepository.findByGroupIdOrderByVersionAsc(workflow.getGroupId()).stream()
+                .map(this::toWorkflowDto).toList();
     }
 
     @Transactional
@@ -101,11 +90,19 @@ public class WorkflowService {
         Workflow workflow = new Workflow();
         workflow.setName(request.name().trim());
         workflow.setDescription(request.description());
-        workflow.setType(request.type() == null ? WorkflowType.SUB : parseType(request.type()));
         workflow.setStatus(request.status() == null ? WorkflowStatus.DRAFT : parseStatus(request.status()));
         workflow.setEntryStepId(request.entryStepId());
         workflow.setOrderIndex(workflowRepository.nextOrderIndex());
-        return toWorkflowDto(workflowRepository.save(workflow));
+        return toWorkflowDto(saveAsNewGroup(workflow));
+    }
+
+    /** Saves a brand-new workflow as version 1 of its own group (groupId = the row's own id). */
+    private Workflow saveAsNewGroup(Workflow workflow) {
+        workflow.setVersion(1);
+        workflow.setCurrent(true);
+        Workflow saved = workflowRepository.save(workflow);
+        saved.setGroupId(saved.getId());
+        return workflowRepository.save(saved);
     }
 
     @Transactional
@@ -117,19 +114,18 @@ public class WorkflowService {
         if (workflowRepository.existsByNameIgnoreCase(name)) {
             throw new ApiException(HttpStatus.CONFLICT, "Workflow name already exists");
         }
-        WorkflowType type = request.type() == null ? WorkflowType.SUB : parseType(request.type());
-        if (type == WorkflowType.MASTER) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Importing MASTER workflows is not supported yet");
-        }
-
         Workflow workflow = new Workflow();
         workflow.setName(name);
         workflow.setDescription(request.description());
-        workflow.setType(type);
         workflow.setStatus(request.status() == null ? WorkflowStatus.DRAFT : parseStatus(request.status()));
         workflow.setOrderIndex(workflowRepository.nextOrderIndex());
-        workflowRepository.save(workflow);
+        saveAsNewGroup(workflow);
+        populateFromImport(workflow, request);
+        return toWorkflowDto(workflow);
+    }
 
+    /** Creates the phases, step tree, transitions and entry step of {@code workflow} from an import payload. */
+    private void populateFromImport(Workflow workflow, ImportWorkflowRequest request) {
         Map<String, Long> refToId = new LinkedHashMap<>();
         Map<String, BusinessRole> roleCache = new HashMap<>();
         Map<String, Long> phaseRefToId = importPhases(request.phases(), workflow.getId());
@@ -145,7 +141,39 @@ public class WorkflowService {
             workflow.setEntryStepId(entryId);
             workflowRepository.save(workflow);
         }
-        return toWorkflowDto(workflow);
+    }
+
+    /** Creates a new editable version (deep copy) of a workflow within the same group; not current. */
+    @Transactional
+    public WorkflowDto createVersion(Long sourceId, CreateVersionRequest request) {
+        Workflow source = requireWorkflow(sourceId);
+        ImportWorkflowRequest snapshot = exportWorkflow(sourceId, true);
+        Workflow version = new Workflow();
+        version.setName(source.getName());
+        version.setDescription(source.getDescription());
+        version.setStatus(source.getStatus());
+        version.setGroupId(source.getGroupId());
+        version.setVersion(workflowRepository.nextVersion(source.getGroupId()));
+        version.setVersionLabel(request == null ? null : request.label());
+        version.setCurrent(false);
+        version.setOrderIndex(source.getOrderIndex());
+        workflowRepository.save(version);
+        populateFromImport(version, snapshot);
+        return toWorkflowDto(version);
+    }
+
+    /** Makes the given version the current one for its group, unsetting the flag on its siblings. */
+    @Transactional
+    public WorkflowDto setCurrent(Long id) {
+        Workflow target = requireWorkflow(id);
+        workflowRepository.findByGroupIdOrderByVersionAsc(target.getGroupId()).forEach(w -> {
+            if (w.isCurrent() && !w.getId().equals(id)) {
+                w.setCurrent(false);
+                workflowRepository.save(w);
+            }
+        });
+        target.setCurrent(true);
+        return toWorkflowDto(workflowRepository.save(target));
     }
 
     private void importSteps(List<ImportStepNode> nodes, Long parentId, Long workflowId,
@@ -282,7 +310,7 @@ public class WorkflowService {
         String entryRef = workflow.getEntryStepId() != null && stepIds.contains(workflow.getEntryStepId())
                 ? stepRef(workflow.getEntryStepId()) : null;
         return new ImportWorkflowRequest(workflow.getName(), workflow.getDescription(),
-                workflow.getType().name(), workflow.getStatus().name(), entryRef,
+                workflow.getStatus().name(), entryRef,
                 phaseNodes, stepNodes, transitions);
     }
 
@@ -325,18 +353,12 @@ public class WorkflowService {
     @Transactional
     public WorkflowDto updateWorkflowFromImport(Long id, ImportWorkflowRequest request) {
         Workflow workflow = requireWorkflow(id);
-        if (workflow.getType() == WorkflowType.MASTER) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Importing into a master workflow is not supported");
-        }
         String name = request.name() == null ? null : request.name().trim();
         if (name == null || name.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Workflow name is required");
         }
-        if (workflowRepository.existsByNameIgnoreCaseAndIdNot(name, id)) {
+        if (workflowRepository.existsByNameIgnoreCaseAndGroupIdNot(name, workflow.getGroupId())) {
             throw new ApiException(HttpStatus.CONFLICT, "Workflow name already exists");
-        }
-        if (request.type() != null && parseType(request.type()) == WorkflowType.MASTER) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "A sub-workflow cannot be turned into a master via import");
         }
 
         Map<Long, WorkflowStep> existingById = stepRepository.findByWorkflowIdOrderByOrderIndexAsc(id).stream()
@@ -580,11 +602,12 @@ public class WorkflowService {
     @Transactional
     public WorkflowDto updateWorkflow(Long id, WorkflowRequest request) {
         Workflow workflow = requireWorkflow(id);
-        workflow.setName(request.name().trim());
-        workflow.setDescription(request.description());
-        if (request.type() != null) {
-            workflow.setType(parseType(request.type()));
+        String name = request.name().trim();
+        if (workflowRepository.existsByNameIgnoreCaseAndGroupIdNot(name, workflow.getGroupId())) {
+            throw new ApiException(HttpStatus.CONFLICT, "Workflow name already exists");
         }
+        workflow.setName(name);
+        workflow.setDescription(request.description());
         if (request.status() != null) {
             workflow.setStatus(parseStatus(request.status()));
         }
@@ -594,131 +617,34 @@ public class WorkflowService {
 
     @Transactional
     public void deleteWorkflow(Long id) {
-        requireWorkflow(id);
+        Workflow workflow = requireWorkflow(id);
         List<WorkflowStep> steps = stepRepository.findByWorkflowIdOrderByOrderIndexAsc(id);
+        for (WorkflowStep step : steps) {
+            long onStep = artifactRepository.countByCurrentStepId(step.getId());
+            if (onStep > 0) {
+                throw new ApiException(HttpStatus.CONFLICT, "Cannot delete this version because "
+                        + onStep + " artifact(s) are currently on step '" + step.getName() + "'");
+            }
+        }
         List<Long> stepIds = steps.stream().map(WorkflowStep::getId).toList();
         transitionRepository.findAll().stream()
                 .filter(t -> stepIds.contains(t.getFromStepId()) || stepIds.contains(t.getToStepId()))
                 .forEach(transitionRepository::delete);
-        // Remove this workflow from any composition it takes part in (as master or piece).
-        compositionRepository.deleteByMasterWorkflowId(id);
-        compositionRepository.findBySubWorkflowId(id).forEach(compositionRepository::delete);
-        linkRepository.deleteByMasterWorkflowId(id);
-        linkRepository.findByFromWorkflowIdOrToWorkflowId(id, id).forEach(linkRepository::delete);
         phaseRepository.deleteAll(phaseRepository.findByWorkflowIdOrderByOrderIndexAsc(id));
         stepRepository.deleteAll(steps);
         workflowRepository.deleteById(id);
+        promoteCurrentIfNeeded(workflow.getGroupId());
     }
 
-    // ---------------- Composition (master jigsaw) ----------------
-
-    @Transactional(readOnly = true)
-    public WorkflowCompositeDto getComposite(Long masterId) {
-        Workflow master = requireWorkflow(masterId);
-        List<CompositeMemberDto> members = compositionRepository
-                .findByMasterWorkflowIdOrderByOrderIndexAsc(masterId).stream()
-                .map(c -> {
-                    Workflow sub = workflowRepository.findById(c.getSubWorkflowId()).orElse(null);
-                    if (sub == null) {
-                        return null;
-                    }
-                    return new CompositeMemberDto(toWorkflowDto(sub), getTree(sub.getId()));
-                })
-                .filter(m -> m != null)
-                .toList();
-        List<WorkflowLinkDto> links = linkRepository
-                .findByMasterWorkflowIdOrderByOrderIndexAsc(masterId).stream()
-                .map(this::toLinkDto)
-                .toList();
-        return new WorkflowCompositeDto(toWorkflowDto(master), members, links);
-    }
-
-    @Transactional
-    public WorkflowCompositeDto addMember(Long masterId, AddMemberRequest request) {
-        requireWorkflow(masterId);
-        Workflow sub = requireWorkflow(request.subWorkflowId());
-        if (masterId.equals(sub.getId())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "A workflow cannot contain itself");
-        }
-        if (sub.getType() == WorkflowType.MASTER) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Only sub-workflows can be placed on a master");
-        }
-        if (compositionRepository.existsByMasterWorkflowIdAndSubWorkflowId(masterId, sub.getId())) {
-            throw new ApiException(HttpStatus.CONFLICT, "Sub-workflow already placed");
-        }
-        WorkflowComposition composition = new WorkflowComposition();
-        composition.setMasterWorkflowId(masterId);
-        composition.setSubWorkflowId(sub.getId());
-        composition.setOrderIndex(compositionRepository.nextOrderIndex(masterId));
-        compositionRepository.save(composition);
-        return getComposite(masterId);
-    }
-
-    @Transactional
-    public WorkflowCompositeDto removeMember(Long masterId, Long subId) {
-        requireWorkflow(masterId);
-        if (!compositionRepository.existsByMasterWorkflowIdAndSubWorkflowId(masterId, subId)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Sub-workflow is not part of this master");
-        }
-        compositionRepository.deleteByMasterWorkflowIdAndSubWorkflowId(masterId, subId);
-        linkRepository.findByMasterWorkflowIdOrderByOrderIndexAsc(masterId).stream()
-                .filter(l -> subId.equals(l.getFromWorkflowId()) || subId.equals(l.getToWorkflowId()))
-                .forEach(linkRepository::delete);
-        return getComposite(masterId);
-    }
-
-    @Transactional
-    public WorkflowLinkDto createLink(WorkflowLinkRequest request) {
-        requireWorkflow(request.masterWorkflowId());
-        requireMember(request.masterWorkflowId(), request.fromWorkflowId());
-        requireMember(request.masterWorkflowId(), request.toWorkflowId());
-        validateLinkStep(request.fromWorkflowId(), request.fromExitStepId());
-        validateLinkStep(request.toWorkflowId(), request.toEntryStepId());
-        WorkflowLink link = new WorkflowLink();
-        link.setMasterWorkflowId(request.masterWorkflowId());
-        link.setFromWorkflowId(request.fromWorkflowId());
-        link.setFromExitStepId(request.fromExitStepId());
-        link.setToWorkflowId(request.toWorkflowId());
-        link.setToEntryStepId(request.toEntryStepId());
-        link.setLabel(request.label());
-        link.setOrderIndex(linkRepository.nextOrderIndex(request.masterWorkflowId()));
-        return toLinkDto(linkRepository.save(link));
-    }
-
-    @Transactional
-    public void deleteLink(Long id) {
-        if (!linkRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Link not found");
-        }
-        linkRepository.deleteById(id);
-    }
-
-    private void requireMember(Long masterId, Long subId) {
-        if (!compositionRepository.existsByMasterWorkflowIdAndSubWorkflowId(masterId, subId)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Workflow is not placed on this master");
-        }
-    }
-
-    private void validateLinkStep(Long workflowId, Long stepId) {
-        if (stepId == null) {
+    /** After deleting a version, keep a group visible by promoting its newest remaining version to current. */
+    private void promoteCurrentIfNeeded(Long groupId) {
+        List<Workflow> remaining = workflowRepository.findByGroupIdOrderByVersionAsc(groupId);
+        if (remaining.isEmpty() || remaining.stream().anyMatch(Workflow::isCurrent)) {
             return;
         }
-        WorkflowStep step = stepRepository.findById(stepId)
-                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Step not found"));
-        if (!workflowId.equals(step.getWorkflowId())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Step does not belong to the referenced workflow");
-        }
-    }
-
-    private WorkflowLinkDto toLinkDto(WorkflowLink link) {
-        String fromName = link.getFromExitStepId() == null ? null
-                : stepRepository.findById(link.getFromExitStepId()).map(WorkflowStep::getName).orElse(null);
-        String toName = link.getToEntryStepId() == null ? null
-                : stepRepository.findById(link.getToEntryStepId()).map(WorkflowStep::getName).orElse(null);
-        return new WorkflowLinkDto(link.getId(), link.getMasterWorkflowId(),
-                link.getFromWorkflowId(), link.getFromExitStepId(), fromName,
-                link.getToWorkflowId(), link.getToEntryStepId(), toName,
-                link.getLabel(), link.getOrderIndex());
+        Workflow newest = remaining.get(remaining.size() - 1);
+        newest.setCurrent(true);
+        workflowRepository.save(newest);
     }
 
     private Workflow requireWorkflow(Long id) {
@@ -727,17 +653,10 @@ public class WorkflowService {
     }
 
     private WorkflowDto toWorkflowDto(Workflow w) {
-        return new WorkflowDto(w.getId(), w.getName(), w.getDescription(), w.getType().name(),
-                w.getStatus().name(), w.getEntryStepId(), w.getVersion(), w.getOrderIndex(),
+        return new WorkflowDto(w.getId(), w.getName(), w.getDescription(),
+                w.getStatus().name(), w.getEntryStepId(), w.getGroupId(), w.getVersion(),
+                w.getVersionLabel(), w.isCurrent(), w.getOrderIndex(),
                 stepRepository.countByWorkflowId(w.getId()));
-    }
-
-    private WorkflowType parseType(String value) {
-        try {
-            return WorkflowType.valueOf(value.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid workflow type: " + value);
-        }
     }
 
     private WorkflowStatus parseStatus(String value) {
@@ -812,10 +731,14 @@ public class WorkflowService {
         return buildChildren(0L, byParent, byFrom, roles, phases, stepNames);
     }
 
-    /** Flat forest of every step across all workflows; used by dashboards and cross-workflow pickers. */
+    /** Flat forest of every step across all current-version workflows; used by dashboards and pickers. */
     @Transactional(readOnly = true)
     public List<WorkflowStepDto> getAllSteps() {
-        List<WorkflowStep> steps = stepRepository.findAllByOrderByOrderIndexAsc();
+        Set<Long> currentIds = workflowRepository.findByIsCurrentTrueOrderByOrderIndexAsc().stream()
+                .map(Workflow::getId).collect(Collectors.toSet());
+        List<WorkflowStep> steps = stepRepository.findAllByOrderByOrderIndexAsc().stream()
+                .filter(s -> currentIds.contains(s.getWorkflowId()))
+                .toList();
         Map<Long, BusinessRole> roles = roleRepository.findAll().stream()
                 .collect(Collectors.toMap(BusinessRole::getId, Function.identity()));
         Map<Long, WorkflowPhase> phases = phaseRepository.findAll().stream()
@@ -984,7 +907,10 @@ public class WorkflowService {
                 .collect(Collectors.toMap(BusinessRole::getId, Function.identity()));
         Map<Long, WorkflowPhase> phases = phaseRepository.findAll().stream()
                 .collect(Collectors.toMap(WorkflowPhase::getId, Function.identity()));
+        Set<Long> currentIds = workflowRepository.findByIsCurrentTrueOrderByOrderIndexAsc().stream()
+                .map(Workflow::getId).collect(Collectors.toSet());
         return stepRepository.findByBusinessRoleIdOrderByOrderIndexAsc(roleId).stream()
+                .filter(step -> currentIds.contains(step.getWorkflowId()))
                 .map(step -> {
                     List<BusinessRoleDto> roleDtos = step.getBusinessRoleIds().stream()
                             .map(roles::get)

@@ -28,7 +28,6 @@ import {
   type Workflow,
   type WorkflowPayload,
   type WorkflowStatus,
-  type WorkflowType,
 } from '../../api/workflow';
 import { extractErrorMessage } from '../../api/client';
 import { isAdmin, useAuthStore } from '../auth/authStore';
@@ -36,12 +35,7 @@ import { isAdmin, useAuthStore } from '../auth/authStore';
 interface FormValues {
   name: string;
   description?: string;
-  type: WorkflowType;
   status: WorkflowStatus;
-}
-
-function typeColor(type: WorkflowType) {
-  return type === 'MASTER' ? 'purple' : 'geekblue';
 }
 
 function statusColor(status: WorkflowStatus) {
@@ -66,15 +60,13 @@ export function SubWorkflowsPage() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['workflows'] });
 
-  const openWorkflow = (wf: Workflow) =>
-    navigate(wf.type === 'MASTER' ? `/workflow/compose/${wf.id}` : `/workflow/edit/${wf.id}`);
+  const openWorkflow = (wf: Workflow) => navigate(`/workflow/edit/${wf.id}`);
 
   const save = useMutation({
     mutationFn: (values: FormValues) => {
       const payload: WorkflowPayload = {
         name: values.name,
         description: values.description,
-        type: values.type,
         status: values.status,
       };
       return editing ? updateWorkflow(editing.id, payload) : createWorkflow(payload);
@@ -129,7 +121,7 @@ export function SubWorkflowsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    form.setFieldsValue({ name: '', description: '', type: 'SUB', status: 'DRAFT' });
+    form.setFieldsValue({ name: '', description: '', status: 'DRAFT' });
   };
 
   const openEdit = (wf: Workflow) => {
@@ -137,7 +129,6 @@ export function SubWorkflowsPage() {
     form.setFieldsValue({
       name: wf.name,
       description: wf.description ?? '',
-      type: wf.type,
       status: wf.status,
     });
   };
@@ -153,10 +144,19 @@ export function SubWorkflowsPage() {
       ),
     },
     {
-      title: 'Type',
-      dataIndex: 'type',
-      width: 110,
-      render: (type: WorkflowType) => <Tag color={typeColor(type)}>{type}</Tag>,
+      title: 'Version',
+      key: 'version',
+      width: 150,
+      render: (_, wf) => (
+        <Space size={4}>
+          <span>v{wf.version}</span>
+          {wf.versionLabel && (
+            <Typography.Text type="secondary" ellipsis style={{ maxWidth: 100 }}>
+              {wf.versionLabel}
+            </Typography.Text>
+          )}
+        </Space>
+      ),
     },
     {
       title: 'Status',
@@ -168,18 +168,18 @@ export function SubWorkflowsPage() {
     {
       title: 'Actions',
       key: 'actions',
-      width: 220,
+      width: 300,
       render: (_, wf) => (
         <Space>
           <Button size="small" icon={<EditFilled />} onClick={() => openWorkflow(wf)}>
-            {wf.type === 'MASTER' ? 'Compose' : 'Open editor'}
+            Open editor
           </Button>
           {admin && (
             <>
               <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(wf)} />
               <Popconfirm
-                title="Delete this workflow?"
-                description="All its steps and transitions will be removed."
+                title="Delete this version?"
+                description="Its steps and transitions will be removed."
                 onConfirm={() => remove.mutate(wf.id)}
               >
                 <Button size="small" danger icon={<DeleteOutlined />} />
@@ -195,7 +195,7 @@ export function SubWorkflowsPage() {
     <div>
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
-          Sub-Workflows
+          Workflows
         </Typography.Title>
         {admin && (
           <Space>
@@ -203,7 +203,7 @@ export function SubWorkflowsPage() {
               Import JSON
             </Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-              New sub-workflow
+              New workflow
             </Button>
           </Space>
         )}
@@ -219,7 +219,7 @@ export function SubWorkflowsPage() {
 
       <Modal
         open={editing !== undefined}
-        title={editing ? 'Edit workflow' : 'New sub-workflow'}
+        title={editing ? 'Edit workflow' : 'New workflow'}
         okText="Save"
         confirmLoading={save.isPending}
         onCancel={() => setEditing(undefined)}
@@ -232,19 +232,11 @@ export function SubWorkflowsPage() {
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={3} maxLength={4000} />
           </Form.Item>
-          <Form.Item name="type" label="Type" rules={[{ required: true }]}>
-            <Select
-              options={[
-                { value: 'SUB', label: 'Sub-workflow (reusable piece)' },
-                { value: 'MASTER', label: 'Master (composition)' },
-              ]}
-            />
-          </Form.Item>
           <Form.Item name="status" label="Status" rules={[{ required: true }]}>
             <Select
               options={[
                 { value: 'DRAFT', label: 'Draft' },
-                { value: 'PUBLISHED', label: 'Published (usable as a piece)' },
+                { value: 'PUBLISHED', label: 'Published' },
               ]}
             />
           </Form.Item>
@@ -253,7 +245,7 @@ export function SubWorkflowsPage() {
 
       <Modal
         open={importOpen}
-        title="Import sub-workflow from JSON"
+        title="Import workflow from JSON"
         okText="Import"
         confirmLoading={runImport.isPending}
         onCancel={() => setImportOpen(false)}

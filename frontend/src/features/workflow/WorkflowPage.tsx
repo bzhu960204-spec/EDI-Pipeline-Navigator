@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { App as AntApp, Button, Checkbox, Col, Input, Modal, Row, Segmented, Space, Spin, Tag, Tooltip, Tree, Typography, Upload } from 'antd';
+import { App as AntApp, Button, Checkbox, Col, Dropdown, Input, Modal, Row, Segmented, Space, Spin, Tag, Tooltip, Tree, Typography, Upload } from 'antd';
 import type { DataNode } from 'antd/es/tree';
-import { ApartmentOutlined, ArrowLeftOutlined, BranchesOutlined, ExportOutlined, GroupOutlined, ImportOutlined, PartitionOutlined, PlusOutlined } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
+import { ApartmentOutlined, ArrowLeftOutlined, BranchesOutlined, CheckOutlined, DownOutlined, ExportOutlined, GroupOutlined, ImportOutlined, MoreOutlined, PartitionOutlined, PlusOutlined, StarOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -12,8 +13,10 @@ import {
   exportWorkflow,
   fetchPhases,
   fetchRoles,
+  fetchVersions,
   fetchWorkflow,
   fetchWorkflowTree,
+  setCurrentVersion,
   updateStep,
   updateWorkflow,
   updateWorkflowFromImport,
@@ -30,6 +33,7 @@ import { StepFormModal, type StepFormValues } from './StepFormModal';
 import { TransitionFormModal } from './TransitionFormModal';
 import { PhaseManagerPanel } from './PhaseManagerPanel';
 import { WorkflowGraph } from './WorkflowGraph';
+import { VersionManagerModal } from './VersionManagerModal';
 
 type ViewMode = 'tree' | 'graph';
 type TreeGrouping = 'hierarchy' | 'phase';
@@ -147,10 +151,16 @@ export function WorkflowPage() {
   const [exportIncludePhases, setExportIncludePhases] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [updateText, setUpdateText] = useState('');
+  const [versionsOpen, setVersionsOpen] = useState(false);
 
   const { data: workflow } = useQuery({
     queryKey: ['workflows', workflowId],
     queryFn: () => fetchWorkflow(workflowId),
+    enabled: Number.isFinite(workflowId),
+  });
+  const { data: versions = [] } = useQuery({
+    queryKey: ['versions', workflowId],
+    queryFn: () => fetchVersions(workflowId),
     enabled: Number.isFinite(workflowId),
   });
   const { data: tree = [], isLoading } = useQuery({
@@ -189,6 +199,17 @@ export function WorkflowPage() {
   }, [grouped, groupedTreeData]);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['workflow', workflowId] });
+
+  const promote = useMutation({
+    mutationFn: (versionId: number) => setCurrentVersion(versionId),
+    onSuccess: () => {
+      message.success('Current version updated');
+      queryClient.invalidateQueries({ queryKey: ['versions', workflowId] });
+      queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['workflows', workflowId] });
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to set current version')),
+  });
 
   const saveStep = useMutation({
     mutationFn: (values: StepFormValues) => {
@@ -245,7 +266,6 @@ export function WorkflowPage() {
       return updateWorkflow(workflowId, {
         name: workflow.name,
         description: workflow.description ?? undefined,
-        type: workflow.type,
         status: workflow.status,
         entryStepId: stepId,
       });
@@ -321,6 +341,49 @@ export function WorkflowPage() {
     </Typography.Text>
   );
 
+  const headerMenuItems: MenuProps['items'] = [
+    { key: 'export', icon: <ExportOutlined />, label: 'Export', onClick: () => setExportOpen(true) },
+    ...(admin
+      ? [
+          { key: 'update', icon: <ImportOutlined />, label: 'Update from JSON', onClick: () => setUpdateOpen(true) },
+          { key: 'phases', icon: <GroupOutlined />, label: 'Phases', onClick: () => setPhaseManagerOpen(true) },
+        ]
+      : []),
+  ];
+
+  const versionMenuItems: MenuProps['items'] = [
+    ...versions.map((v) => ({
+      key: `v-${v.id}`,
+      icon: v.id === workflowId ? <CheckOutlined /> : <span style={{ display: 'inline-block', width: 14 }} />,
+      label: (
+        <Space size={6}>
+          <span style={{ fontWeight: v.isCurrent ? 600 : 400 }}>v{v.version}</span>
+          {v.isCurrent && <Tag color="blue" style={{ marginInlineEnd: 0 }}>current</Tag>}
+          {v.versionLabel && (
+            <Typography.Text type="secondary" ellipsis style={{ maxWidth: 160 }}>
+              {v.versionLabel}
+            </Typography.Text>
+          )}
+        </Space>
+      ),
+      onClick: () => {
+        if (v.id !== workflowId) navigate(`/workflow/edit/${v.id}`);
+      },
+    })),
+    { type: 'divider' as const },
+    ...(admin && workflow && !workflow.isCurrent
+      ? [
+          {
+            key: 'set-current',
+            icon: <StarOutlined />,
+            label: 'Set this version as current',
+            onClick: () => promote.mutate(workflowId),
+          },
+        ]
+      : []),
+    { key: 'manage', icon: <BranchesOutlined />, label: 'Manage versions\u2026', onClick: () => setVersionsOpen(true) },
+  ];
+
   let leftPanel: React.ReactNode;
   if (treeData.length === 0) {
     leftPanel = (
@@ -367,44 +430,58 @@ export function WorkflowPage() {
 
   return (
     <div>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
-        <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/workflow')}>
-            Sub-Workflows
-          </Button>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            {workflow?.name ?? 'Workflow'}
-          </Typography.Title>
-          {workflow && <Tag color={workflow.status === 'PUBLISHED' ? 'green' : 'default'}>{workflow.status}</Tag>}
-        </Space>
-        <Space>
-          <Segmented
-            value={view}
-            onChange={(v) => setView(v as ViewMode)}
-            options={[
-              { label: 'Tree', value: 'tree', icon: <ApartmentOutlined /> },
-              { label: 'Graph', value: 'graph', icon: <PartitionOutlined /> },
-            ]}
-          />
-          <Button icon={<ExportOutlined />} onClick={() => setExportOpen(true)}>
-            Export
-          </Button>
-          {admin && (
-            <Button icon={<ImportOutlined />} onClick={() => setUpdateOpen(true)}>
-              Update from JSON
+      <Row wrap={false} align="middle" gutter={16} style={{ marginBottom: 16 }}>
+        <Col flex="auto" style={{ minWidth: 0 }}>
+          <Space style={{ maxWidth: '100%' }}>
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/workflow')}>
+              Workflows
             </Button>
-          )}
-          {admin && (
-            <Button icon={<GroupOutlined />} onClick={() => setPhaseManagerOpen(true)}>
-              Phases
-            </Button>
-          )}
-          {admin && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setStepModal({ mode: 'create-root' })}>
-              Add root step
-            </Button>
-          )}
-        </Space>
+            <Typography.Title
+              level={4}
+              style={{ margin: 0, minWidth: 0 }}
+              ellipsis={{ tooltip: workflow?.name }}
+            >
+              {workflow?.name ?? 'Workflow'}
+            </Typography.Title>
+            {workflow && (
+              <Dropdown menu={{ items: versionMenuItems }} trigger={['click']}>
+                <Tag
+                  color={workflow.isCurrent ? 'blue' : 'default'}
+                  style={{ marginInlineEnd: 0, flexShrink: 0, cursor: 'pointer', userSelect: 'none' }}
+                >
+                  v{workflow.version}
+                  {workflow.isCurrent ? ' · current' : ''}
+                  <DownOutlined style={{ fontSize: 10, marginInlineStart: 4 }} />
+                </Tag>
+              </Dropdown>
+            )}
+            {workflow && (
+              <Tag color={workflow.status === 'PUBLISHED' ? 'green' : 'default'} style={{ marginInlineEnd: 0, flexShrink: 0 }}>
+                {workflow.status}
+              </Tag>
+            )}
+          </Space>
+        </Col>
+        <Col flex="none">
+          <Space>
+            <Segmented
+              value={view}
+              onChange={(v) => setView(v as ViewMode)}
+              options={[
+                { label: 'Tree', value: 'tree', icon: <ApartmentOutlined /> },
+                { label: 'Graph', value: 'graph', icon: <PartitionOutlined /> },
+              ]}
+            />
+            <Dropdown menu={{ items: headerMenuItems }} trigger={['click']}>
+              <Button icon={<MoreOutlined />}>Actions</Button>
+            </Dropdown>
+            {admin && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setStepModal({ mode: 'create-root' })}>
+                Add root step
+              </Button>
+            )}
+          </Space>
+        </Col>
       </Row>
 
       {isLoading ? (
@@ -504,6 +581,15 @@ export function WorkflowPage() {
         onCancel={() => setTransitionFor(null)}
         onSubmit={(values) => addTransition.mutate(values)}
       />
+
+      {versionsOpen && (
+        <VersionManagerModal
+          open
+          workflowId={workflowId}
+          admin={admin}
+          onClose={() => setVersionsOpen(false)}
+        />
+      )}
     </div>
   );
 }

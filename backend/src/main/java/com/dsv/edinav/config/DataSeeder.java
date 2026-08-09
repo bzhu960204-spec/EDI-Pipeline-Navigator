@@ -16,7 +16,6 @@ import com.dsv.edinav.workflow.WorkflowStep;
 import com.dsv.edinav.workflow.WorkflowStepRepository;
 import com.dsv.edinav.workflow.WorkflowTransition;
 import com.dsv.edinav.workflow.WorkflowTransitionRepository;
-import com.dsv.edinav.workflow.WorkflowType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
@@ -137,10 +136,13 @@ public class DataSeeder implements CommandLineRunner {
         Workflow workflow = new Workflow();
         workflow.setName(name);
         workflow.setDescription(description);
-        workflow.setType(WorkflowType.SUB);
         workflow.setStatus(WorkflowStatus.PUBLISHED);
+        workflow.setVersion(1);
+        workflow.setCurrent(true);
         workflow.setOrderIndex(workflowRepository.nextOrderIndex());
-        return workflowRepository.save(workflow).getId();
+        Workflow saved = workflowRepository.save(workflow);
+        saved.setGroupId(saved.getId());
+        return workflowRepository.save(saved).getId();
     }
 
     private BusinessRole role(String name, String color, String description) {

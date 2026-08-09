@@ -1,17 +1,14 @@
 package com.dsv.edinav.workflow;
 
-import com.dsv.edinav.workflow.dto.AddMemberRequest;
 import com.dsv.edinav.workflow.dto.BusinessRoleDto;
 import com.dsv.edinav.workflow.dto.BusinessRoleRequest;
 import com.dsv.edinav.workflow.dto.CreateStepRequest;
 import com.dsv.edinav.workflow.dto.CreateTransitionRequest;
+import com.dsv.edinav.workflow.dto.CreateVersionRequest;
 import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
 import com.dsv.edinav.workflow.dto.TransitionDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
-import com.dsv.edinav.workflow.dto.WorkflowCompositeDto;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
-import com.dsv.edinav.workflow.dto.WorkflowLinkDto;
-import com.dsv.edinav.workflow.dto.WorkflowLinkRequest;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseDto;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseRequest;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
@@ -42,17 +39,21 @@ public class WorkflowController {
         this.workflowService = workflowService;
     }
 
-    // ----- Workflow containers (sub-workflows / masters) -----
+    // ----- Workflow containers (versioned workflows) -----
 
     @GetMapping("/workflows")
-    public List<WorkflowDto> getWorkflows(@RequestParam(required = false) String type,
-                                          @RequestParam(required = false) String status) {
-        return workflowService.getWorkflows(type, status);
+    public List<WorkflowDto> getWorkflows() {
+        return workflowService.getWorkflows();
     }
 
     @GetMapping("/workflows/{id}")
     public WorkflowDto getWorkflow(@PathVariable Long id) {
         return workflowService.getWorkflow(id);
+    }
+
+    @GetMapping("/workflows/{id}/versions")
+    public List<WorkflowDto> getVersions(@PathVariable Long id) {
+        return workflowService.getVersions(id);
     }
 
     @GetMapping("/workflows/{id}/tree")
@@ -96,43 +97,23 @@ public class WorkflowController {
         return workflowService.updateWorkflow(id, request);
     }
 
+    @PostMapping("/workflows/{id}/versions")
+    @PreAuthorize("hasRole('ADMIN')")
+    public WorkflowDto createVersion(@PathVariable Long id, @Valid @RequestBody CreateVersionRequest request) {
+        return workflowService.createVersion(id, request);
+    }
+
+    @PostMapping("/workflows/{id}/set-current")
+    @PreAuthorize("hasRole('ADMIN')")
+    public WorkflowDto setCurrent(@PathVariable Long id) {
+        return workflowService.setCurrent(id);
+    }
+
     @DeleteMapping("/workflows/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteWorkflow(@PathVariable Long id) {
         workflowService.deleteWorkflow(id);
-    }
-
-    // ----- Composition (master jigsaw: members + links) -----
-
-    @GetMapping("/workflows/{id}/composite")
-    public WorkflowCompositeDto getComposite(@PathVariable Long id) {
-        return workflowService.getComposite(id);
-    }
-
-    @PostMapping("/workflows/{id}/members")
-    @PreAuthorize("hasRole('ADMIN')")
-    public WorkflowCompositeDto addMember(@PathVariable Long id, @Valid @RequestBody AddMemberRequest request) {
-        return workflowService.addMember(id, request);
-    }
-
-    @DeleteMapping("/workflows/{id}/members/{subId}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public WorkflowCompositeDto removeMember(@PathVariable Long id, @PathVariable Long subId) {
-        return workflowService.removeMember(id, subId);
-    }
-
-    @PostMapping("/links")
-    @PreAuthorize("hasRole('ADMIN')")
-    public WorkflowLinkDto createLink(@Valid @RequestBody WorkflowLinkRequest request) {
-        return workflowService.createLink(request);
-    }
-
-    @DeleteMapping("/links/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteLink(@PathVariable Long id) {
-        workflowService.deleteLink(id);
     }
 
     // ----- Steps (scoped to a workflow) -----

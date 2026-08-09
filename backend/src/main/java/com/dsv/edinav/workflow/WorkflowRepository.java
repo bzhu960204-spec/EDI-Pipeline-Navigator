@@ -6,13 +6,18 @@ import java.util.List;
 
 public interface WorkflowRepository extends JpaRepository<Workflow, Long> {
     List<Workflow> findAllByOrderByOrderIndexAsc();
-    List<Workflow> findByTypeOrderByOrderIndexAsc(WorkflowType type);
-    List<Workflow> findByTypeAndStatusOrderByOrderIndexAsc(WorkflowType type, WorkflowStatus status);
+    List<Workflow> findByIsCurrentTrueOrderByOrderIndexAsc();
+    List<Workflow> findByGroupIdOrderByVersionAsc(Long groupId);
     boolean existsByNameIgnoreCase(String name);
-    boolean existsByNameIgnoreCaseAndIdNot(String name, Long id);
+    boolean existsByNameIgnoreCaseAndGroupIdNot(String name, Long groupId);
 
     default int nextOrderIndex() {
         List<Workflow> all = findAllByOrderByOrderIndexAsc();
         return all.isEmpty() ? 0 : all.get(all.size() - 1).getOrderIndex() + 1;
+    }
+
+    default int nextVersion(Long groupId) {
+        return findByGroupIdOrderByVersionAsc(groupId).stream()
+                .mapToInt(Workflow::getVersion).max().orElse(0) + 1;
     }
 }
