@@ -1,10 +1,13 @@
-import { Button, Card, Descriptions, Empty, Popconfirm, Space, Tag, Typography } from 'antd';
+import { App as AntApp, Button, Card, Descriptions, Dropdown, Empty, Popconfirm, Space, Tabs, Tag, Typography } from 'antd';
+import type { MenuProps, TabsProps } from 'antd';
+import { useState } from 'react';
 import {
   ApartmentOutlined,
   ArrowLeftOutlined,
   ArrowRightOutlined,
   DeleteOutlined,
   EditOutlined,
+  MoreOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
 import type { Transition, WorkflowStep } from '../../api/workflow';
@@ -35,6 +38,16 @@ export function StepDetail({
   onDeleteTransition,
   onNavigate,
 }: Readonly<StepDetailProps>) {
+  const { modal } = AntApp.useApp();
+  const [activeTab, setActiveTab] = useState<string>(
+    () => localStorage.getItem('stepDetail.stepsTab') ?? 'next',
+  );
+
+  const handleTabChange = (key: string) => {
+    setActiveTab(key);
+    localStorage.setItem('stepDetail.stepsTab', key);
+  };
+
   if (!step) {
     return (
       <Card>
@@ -42,6 +55,95 @@ export function StepDetail({
       </Card>
     );
   }
+
+  const actionItems: MenuProps['items'] = [
+    { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: onEdit },
+    { key: 'sub', icon: <ApartmentOutlined />, label: 'Sub-step', onClick: onAddSub },
+    { key: 'next', icon: <PlusOutlined />, label: 'Next step', onClick: onAddTransition },
+    { type: 'divider' },
+    {
+      key: 'delete',
+      icon: <DeleteOutlined />,
+      label: 'Delete',
+      danger: true,
+      onClick: () =>
+        modal.confirm({
+          title: 'Delete this step?',
+          content: 'Sub-steps and related transitions are removed too.',
+          okText: 'Delete',
+          okButtonProps: { danger: true },
+          onOk: onDelete,
+        }),
+    },
+  ];
+
+  const tabItems: TabsProps['items'] = [
+    {
+      key: 'next',
+      label: (
+        <Space size={4}>
+          <span>Next steps</span>
+          <Tag>{step.transitions.length}</Tag>
+          {step.transitions.length > 1 && <Tag color="blue">branching</Tag>}
+        </Space>
+      ),
+      children:
+        step.transitions.length === 0 ? (
+          <Typography.Text type="secondary">No outgoing transitions (end of flow).</Typography.Text>
+        ) : (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {step.transitions.map((t) => (
+              <Space key={t.id} style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space>
+                  {t.label && <Tag>{t.label}</Tag>}
+                  <ArrowRightOutlined />
+                  <Button type="link" style={{ padding: 0 }} onClick={() => onNavigate(t.toStepId)}>
+                    {t.toStepName}
+                  </Button>
+                </Space>
+                {isAdmin && (
+                  <Popconfirm title="Remove this transition?" onConfirm={() => onDeleteTransition(t)}>
+                    <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                )}
+              </Space>
+            ))}
+          </Space>
+        ),
+    },
+    {
+      key: 'previous',
+      label: (
+        <Space size={4}>
+          <span>Previous steps</span>
+          <Tag>{incoming.length}</Tag>
+          {incoming.length > 1 && <Tag color="purple">merge</Tag>}
+        </Space>
+      ),
+      children:
+        incoming.length === 0 ? (
+          <Typography.Text type="secondary">
+            {isEntry ? 'Entry point — no upstream sources.' : 'No incoming transitions (currently unreachable).'}
+          </Typography.Text>
+        ) : (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {incoming.map((inc) => (
+              <Space key={inc.transition.id} style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space>
+                  {inc.transition.label && <Tag>{inc.transition.label}</Tag>}
+                  {inc.isRollback && <Tag color="red">rollback</Tag>}
+                  {inc.isSelfLoop && <Tag color="orange">self-loop</Tag>}
+                  <ArrowLeftOutlined />
+                  <Button type="link" style={{ padding: 0 }} onClick={() => onNavigate(inc.fromStep.id)}>
+                    {inc.fromStep.name}
+                  </Button>
+                </Space>
+              </Space>
+            ))}
+          </Space>
+        ),
+    },
+  ];
 
   return (
     <Card
@@ -59,24 +161,9 @@ export function StepDetail({
       }
       extra={
         isAdmin && (
-          <Space>
-            <Button size="small" icon={<EditOutlined />} onClick={onEdit}>
-              Edit
-            </Button>
-            <Button size="small" icon={<ApartmentOutlined />} onClick={onAddSub}>
-              Sub-step
-            </Button>
-            <Button size="small" icon={<PlusOutlined />} onClick={onAddTransition}>
-              Next step
-            </Button>
-            <Popconfirm
-              title="Delete this step?"
-              description="Sub-steps and related transitions are removed too."
-              onConfirm={onDelete}
-            >
-              <Button size="small" danger icon={<DeleteOutlined />} />
-            </Popconfirm>
-          </Space>
+          <Dropdown menu={{ items: actionItems }} trigger={['click']}>
+            <Button size="small" icon={<MoreOutlined />} />
+          </Dropdown>
         )
       }
     >
@@ -95,56 +182,12 @@ export function StepDetail({
         </Descriptions.Item>
       </Descriptions>
 
-      <Typography.Title level={5} style={{ marginTop: 16 }}>
-        Previous steps {incoming.length > 1 && <Tag color="purple">merge</Tag>}
-      </Typography.Title>
-      {incoming.length === 0 ? (
-        <Typography.Text type="secondary">
-          {isEntry ? 'Entry point — no upstream sources.' : 'No incoming transitions (currently unreachable).'}
-        </Typography.Text>
-      ) : (
-        <Space direction="vertical" style={{ width: '100%' }}>
-          {incoming.map((inc) => (
-            <Space key={inc.transition.id} style={{ justifyContent: 'space-between', width: '100%' }}>
-              <Space>
-                {inc.transition.label && <Tag>{inc.transition.label}</Tag>}
-                {inc.isRollback && <Tag color="red">rollback</Tag>}
-                {inc.isSelfLoop && <Tag color="orange">self-loop</Tag>}
-                <ArrowLeftOutlined />
-                <Button type="link" style={{ padding: 0 }} onClick={() => onNavigate(inc.fromStep.id)}>
-                  {inc.fromStep.name}
-                </Button>
-              </Space>
-            </Space>
-          ))}
-        </Space>
-      )}
-
-      <Typography.Title level={5} style={{ marginTop: 16 }}>
-        Next steps {step.transitions.length > 1 && <Tag color="blue">branching</Tag>}
-      </Typography.Title>
-      {step.transitions.length === 0 ? (
-        <Typography.Text type="secondary">No outgoing transitions (end of flow).</Typography.Text>
-      ) : (
-        <Space direction="vertical" style={{ width: '100%' }}>
-          {step.transitions.map((t) => (
-            <Space key={t.id} style={{ justifyContent: 'space-between', width: '100%' }}>
-              <Space>
-                {t.label && <Tag>{t.label}</Tag>}
-                <ArrowRightOutlined />
-                <Button type="link" style={{ padding: 0 }} onClick={() => onNavigate(t.toStepId)}>
-                  {t.toStepName}
-                </Button>
-              </Space>
-              {isAdmin && (
-                <Popconfirm title="Remove this transition?" onConfirm={() => onDeleteTransition(t)}>
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                </Popconfirm>
-              )}
-            </Space>
-          ))}
-        </Space>
-      )}
+      <Tabs
+        style={{ marginTop: 16 }}
+        activeKey={activeTab}
+        onChange={handleTabChange}
+        items={tabItems}
+      />
     </Card>
   );
 }

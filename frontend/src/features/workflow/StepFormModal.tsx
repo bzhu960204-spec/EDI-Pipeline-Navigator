@@ -54,6 +54,8 @@ export function StepFormModal({
       onCancel={onCancel}
       onOk={() => form.submit()}
       destroyOnClose
+      centered
+      styles={{ body: { maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' } }}
     >
       <Form form={form} layout="vertical" onFinish={onSubmit} requiredMark={false}>
         <Form.Item
