@@ -3,69 +3,79 @@ import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
-  createTag,
-  deleteTag,
-  updateTag,
-  type WorkflowTag,
-  type WorkflowTagPayload,
+  createFolder,
+  deleteFolder,
+  updateFolder,
+  type WorkflowFolder,
+  type WorkflowFolderPayload,
 } from '../../api/workflow';
 import { extractErrorMessage } from '../../api/client';
 import { colorForTag } from './tagColor';
 
-interface TagManagerPanelProps {
-  tags: WorkflowTag[];
+interface FolderManagerPanelProps {
+  folders: WorkflowFolder[];
   /** When false, the create/edit form is hidden (non-admin, read-only). */
   editable?: boolean;
 }
 
-export function TagManagerPanel({ tags, editable = true }: Readonly<TagManagerPanelProps>) {
+interface FolderFormValues {
+  name: string;
+  description?: string;
+}
+
+export function FolderManagerPanel({ folders, editable = true }: Readonly<FolderManagerPanelProps>) {
   const { message } = AntApp.useApp();
   const queryClient = useQueryClient();
-  const [form] = Form.useForm<{ name: string }>();
+  const [form] = Form.useForm<FolderFormValues>();
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['tags'] });
+    queryClient.invalidateQueries({ queryKey: ['folders'] });
     queryClient.invalidateQueries({ queryKey: ['workflows'] });
   };
 
   const saveMutation = useMutation({
-    mutationFn: (payload: WorkflowTagPayload) =>
-      editingId ? updateTag(editingId, payload) : createTag(payload),
+    mutationFn: (payload: WorkflowFolderPayload) =>
+      editingId ? updateFolder(editingId, payload) : createFolder(payload),
     onSuccess: () => {
-      message.success(editingId ? 'Tag updated' : 'Tag created');
+      message.success(editingId ? 'Folder updated' : 'Folder created');
       form.resetFields();
       setEditingId(null);
       invalidate();
     },
-    onError: (e) => message.error(extractErrorMessage(e, 'Failed to save tag')),
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to save folder')),
   });
 
   const removeMutation = useMutation({
-    mutationFn: (id: number) => deleteTag(id),
+    mutationFn: (id: number) => deleteFolder(id),
     onSuccess: () => {
-      message.success('Tag deleted');
+      message.success('Folder deleted');
       invalidate();
     },
-    onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete tag')),
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete folder')),
   });
 
-  const startEdit = (tag: WorkflowTag) => {
-    setEditingId(tag.id);
-    form.setFieldsValue({ name: tag.name });
+  const startEdit = (folder: WorkflowFolder) => {
+    setEditingId(folder.id);
+    form.setFieldsValue({ name: folder.name, description: folder.description ?? '' });
   };
 
   return (
-    <Card title="Workflow tags" size="small">
+    <Card title="Workflow folders" size="small">
       {editable && (
         <Form
           form={form}
           layout="inline"
-          onFinish={(values) => saveMutation.mutate({ name: values.name })}
+          onFinish={(values) =>
+            saveMutation.mutate({ name: values.name, description: values.description })
+          }
           style={{ marginBottom: 16, rowGap: 8, flexWrap: 'wrap' }}
         >
           <Form.Item name="name" rules={[{ required: true, message: 'Name' }]}>
-            <Input placeholder="Tag name" style={{ width: 160 }} />
+            <Input placeholder="Folder name" style={{ width: 160 }} />
+          </Form.Item>
+          <Form.Item name="description">
+            <Input placeholder="Description (optional)" style={{ width: 200 }} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" icon={<PlusOutlined />} loading={saveMutation.isPending}>
@@ -90,21 +100,21 @@ export function TagManagerPanel({ tags, editable = true }: Readonly<TagManagerPa
       <List
         size="small"
         bordered
-        dataSource={tags}
-        locale={{ emptyText: 'No tags yet' }}
-        renderItem={(tag) => (
+        dataSource={folders}
+        locale={{ emptyText: 'No folders yet' }}
+        renderItem={(folder) => (
           <List.Item
             actions={
               editable
                 ? [
-                    <Button key="edit" type="link" onClick={() => startEdit(tag)}>
+                    <Button key="edit" type="link" onClick={() => startEdit(folder)}>
                       Edit
                     </Button>,
                     <Popconfirm
                       key="del"
-                      title="Delete this tag?"
-                      description="It will be removed from any workflows using it."
-                      onConfirm={() => removeMutation.mutate(tag.id)}
+                      title="Delete this folder?"
+                      description="Workflows inside it are kept and become ungrouped."
+                      onConfirm={() => removeMutation.mutate(folder.id)}
                     >
                       <Button type="link" danger icon={<DeleteOutlined />} />
                     </Popconfirm>,
@@ -112,7 +122,10 @@ export function TagManagerPanel({ tags, editable = true }: Readonly<TagManagerPa
                 : undefined
             }
           >
-            <Tag color={colorForTag(tag.name)}>{tag.name}</Tag>
+            <List.Item.Meta
+              title={<Tag color={colorForTag(folder.name)}>{folder.name}</Tag>}
+              description={folder.description || undefined}
+            />
           </List.Item>
         )}
       />

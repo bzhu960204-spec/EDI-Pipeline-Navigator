@@ -2,10 +2,12 @@ import { api } from './client';
 
 export type WorkflowStatus = 'DRAFT' | 'PUBLISHED';
 
-export interface WorkflowTag {
+export interface WorkflowFolder {
   id: number;
   name: string;
   color?: string | null;
+  description?: string | null;
+  orderIndex: number;
 }
 
 export interface Workflow {
@@ -18,15 +20,17 @@ export interface Workflow {
   versionLabel?: string | null;
   isCurrent: boolean;
   orderIndex: number;
+  folderId?: number | null;
   stepCount: number;
-  tags: WorkflowTag[];
+  tags: string[];
 }
 
 export interface WorkflowPayload {
   name: string;
   description?: string;
   status?: WorkflowStatus;
-  tagIds?: number[];
+  folderId?: number | null;
+  tags?: string[];
 }
 
 export interface BusinessRole {
@@ -92,11 +96,6 @@ export interface WorkflowPhasePayload {
   color?: string;
   orderIndex?: number;
   description?: string;
-}
-
-export interface WorkflowTagPayload {
-  name: string;
-  color?: string;
 }
 
 export interface CreateTransitionPayload {
@@ -281,21 +280,28 @@ export async function deletePhase(id: number): Promise<void> {
   await api.delete(`/workflow/phases/${id}`);
 }
 
-export async function fetchTags(): Promise<WorkflowTag[]> {
-  const { data } = await api.get<WorkflowTag[]>('/workflow/tags');
+export interface WorkflowFolderPayload {
+  name: string;
+  color?: string;
+  description?: string;
+  orderIndex?: number;
+}
+
+export async function fetchFolders(): Promise<WorkflowFolder[]> {
+  const { data } = await api.get<WorkflowFolder[]>('/workflow/folders');
   return data;
 }
 
-export async function createTag(payload: WorkflowTagPayload): Promise<WorkflowTag> {
-  const { data } = await api.post<WorkflowTag>('/workflow/tags', payload);
+export async function createFolder(payload: WorkflowFolderPayload): Promise<WorkflowFolder> {
+  const { data } = await api.post<WorkflowFolder>('/workflow/folders', payload);
   return data;
 }
 
-export async function updateTag(id: number, payload: WorkflowTagPayload): Promise<WorkflowTag> {
-  const { data } = await api.put<WorkflowTag>(`/workflow/tags/${id}`, payload);
+export async function updateFolder(id: number, payload: WorkflowFolderPayload): Promise<WorkflowFolder> {
+  const { data } = await api.put<WorkflowFolder>(`/workflow/folders/${id}`, payload);
   return data;
 }
 
-export async function deleteTag(id: number): Promise<void> {
-  await api.delete(`/workflow/tags/${id}`);
+export async function deleteFolder(id: number): Promise<void> {
+  await api.delete(`/workflow/folders/${id}`);
 }

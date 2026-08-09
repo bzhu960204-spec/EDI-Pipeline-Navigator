@@ -12,6 +12,7 @@ public record WorkflowDto(
         String versionLabel,
         boolean isCurrent,
         int orderIndex,
+        Long folderId,
         long stepCount,
-        List<WorkflowTagDto> tags
+        List<String> tags
 ) {}

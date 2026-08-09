@@ -555,8 +555,8 @@ export function WorkflowPage() {
                   {workflow.tags.length > 0 && (
                     <Space size={4} wrap>
                       {workflow.tags.map((t) => (
-                        <Tag key={t.id} color={colorForTag(t.name)} style={{ marginInlineEnd: 0 }}>
-                          {t.name}
+                        <Tag key={t} color={colorForTag(t)} style={{ marginInlineEnd: 0 }}>
+                          {t}
                         </Tag>
                       ))}
                     </Space>

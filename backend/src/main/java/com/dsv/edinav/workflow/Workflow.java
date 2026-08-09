@@ -59,11 +59,14 @@ public class Workflow {
     @Column(nullable = false)
     private int orderIndex;
 
-    /** Ids of {@link WorkflowTag} attached to this workflow, for library grouping/filtering. */
+    /** Optional {@link WorkflowFolder} this workflow lives in (single membership); null means ungrouped. */
+    private Long folderId;
+
+    /** Free-text labels attached to this workflow, for library grouping/filtering. */
     @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "workflow_tag_link", joinColumns = @JoinColumn(name = "workflow_id"))
-    @Column(name = "tag_id")
-    private List<Long> tagIds = new ArrayList<>();
+    @CollectionTable(name = "workflow_tags", joinColumns = @JoinColumn(name = "workflow_id"))
+    @Column(name = "tag", length = 80)
+    private List<String> tags = new ArrayList<>();
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -76,6 +79,9 @@ public class Workflow {
 
     public WorkflowStatus getStatus() { return status; }
     public void setStatus(WorkflowStatus status) { this.status = status; }
+
+    public Long getFolderId() { return folderId; }
+    public void setFolderId(Long folderId) { this.folderId = folderId; }
 
     public Long getGroupId() { return groupId; }
     public void setGroupId(Long groupId) { this.groupId = groupId; }
@@ -92,6 +98,6 @@ public class Workflow {
     public int getOrderIndex() { return orderIndex; }
     public void setOrderIndex(int orderIndex) { this.orderIndex = orderIndex; }
 
-    public List<Long> getTagIds() { return tagIds; }
-    public void setTagIds(List<Long> tagIds) { this.tagIds = tagIds; }
+    public List<String> getTags() { return tags; }
+    public void setTags(List<String> tags) { this.tags = tags; }
 }

@@ -9,12 +9,12 @@ import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
 import com.dsv.edinav.workflow.dto.TransitionDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
+import com.dsv.edinav.workflow.dto.WorkflowFolderDto;
+import com.dsv.edinav.workflow.dto.WorkflowFolderRequest;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseDto;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseRequest;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
-import com.dsv.edinav.workflow.dto.WorkflowTagDto;
-import com.dsv.edinav.workflow.dto.WorkflowTagRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -217,29 +217,29 @@ public class WorkflowController {
         workflowService.deletePhase(id);
     }
 
-    // ----- Tags -----
+    // ----- Folders -----
 
-    @GetMapping("/tags")
-    public List<WorkflowTagDto> getTags() {
-        return workflowService.getTags();
+    @GetMapping("/folders")
+    public List<WorkflowFolderDto> getFolders() {
+        return workflowService.getFolders();
     }
 
-    @PostMapping("/tags")
+    @PostMapping("/folders")
     @PreAuthorize("hasRole('ADMIN')")
-    public WorkflowTagDto createTag(@Valid @RequestBody WorkflowTagRequest request) {
-        return workflowService.createTag(request);
+    public WorkflowFolderDto createFolder(@Valid @RequestBody WorkflowFolderRequest request) {
+        return workflowService.createFolder(request);
     }
 
-    @PutMapping("/tags/{id}")
+    @PutMapping("/folders/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public WorkflowTagDto updateTag(@PathVariable Long id, @Valid @RequestBody WorkflowTagRequest request) {
-        return workflowService.updateTag(id, request);
+    public WorkflowFolderDto updateFolder(@PathVariable Long id, @Valid @RequestBody WorkflowFolderRequest request) {
+        return workflowService.updateFolder(id, request);
     }
 
-    @DeleteMapping("/tags/{id}")
+    @DeleteMapping("/folders/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteTag(@PathVariable Long id) {
-        workflowService.deleteTag(id);
+    public void deleteFolder(@PathVariable Long id) {
+        workflowService.deleteFolder(id);
     }
 }

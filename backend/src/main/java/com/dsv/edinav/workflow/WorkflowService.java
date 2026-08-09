@@ -14,12 +14,12 @@ import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
 import com.dsv.edinav.workflow.dto.TransitionDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
+import com.dsv.edinav.workflow.dto.WorkflowFolderDto;
+import com.dsv.edinav.workflow.dto.WorkflowFolderRequest;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseDto;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseRequest;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
-import com.dsv.edinav.workflow.dto.WorkflowTagDto;
-import com.dsv.edinav.workflow.dto.WorkflowTagRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,7 +47,7 @@ public class WorkflowService {
     private final WorkflowTransitionRepository transitionRepository;
     private final BusinessRoleRepository roleRepository;
     private final WorkflowPhaseRepository phaseRepository;
-    private final WorkflowTagRepository tagRepository;
+    private final WorkflowFolderRepository folderRepository;
     private final ArtifactRepository artifactRepository;
 
     public WorkflowService(WorkflowRepository workflowRepository,
@@ -55,14 +55,14 @@ public class WorkflowService {
                            WorkflowTransitionRepository transitionRepository,
                            BusinessRoleRepository roleRepository,
                            WorkflowPhaseRepository phaseRepository,
-                           WorkflowTagRepository tagRepository,
+                           WorkflowFolderRepository folderRepository,
                            ArtifactRepository artifactRepository) {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
         this.transitionRepository = transitionRepository;
         this.roleRepository = roleRepository;
         this.phaseRepository = phaseRepository;
-        this.tagRepository = tagRepository;
+        this.folderRepository = folderRepository;
         this.artifactRepository = artifactRepository;
     }
 
@@ -97,7 +97,8 @@ public class WorkflowService {
         workflow.setDescription(request.description());
         workflow.setStatus(request.status() == null ? WorkflowStatus.DRAFT : parseStatus(request.status()));
         workflow.setOrderIndex(workflowRepository.nextOrderIndex());
-        workflow.setTagIds(resolveTagIds(request.tagIds()));
+        workflow.setFolderId(resolveFolderId(request.folderId()));
+        workflow.setTags(cleanTags(request.tags()));
         return toWorkflowDto(saveAsNewGroup(workflow));
     }
 
@@ -124,7 +125,7 @@ public class WorkflowService {
         workflow.setDescription(request.description());
         workflow.setStatus(request.status() == null ? WorkflowStatus.DRAFT : parseStatus(request.status()));
         workflow.setOrderIndex(workflowRepository.nextOrderIndex());
-        workflow.setTagIds(resolveTagNames(request.tags()));
+        workflow.setTags(cleanTags(request.tags()));
         saveAsNewGroup(workflow);
         populateFromImport(workflow, request);
         return toWorkflowDto(workflow);
@@ -153,7 +154,8 @@ public class WorkflowService {
         version.setVersionLabel(request == null ? null : request.label());
         version.setCurrent(false);
         version.setOrderIndex(source.getOrderIndex());
-        version.setTagIds(new ArrayList<>(source.getTagIds()));
+        version.setFolderId(source.getFolderId());
+        version.setTags(new ArrayList<>(source.getTags()));
         workflowRepository.save(version);
         populateFromImport(version, snapshot);
         return toWorkflowDto(version);
@@ -314,9 +316,8 @@ public class WorkflowService {
                             p.getOrderIndex(), p.getDescription()))
                     .toList();
         }
-        List<String> tagNames = workflow.getTagIds().isEmpty() ? null
-                : tagRepository.findAllById(workflow.getTagIds()).stream()
-                        .map(WorkflowTag::getName)
+        List<String> tagNames = workflow.getTags().isEmpty() ? null
+                : workflow.getTags().stream()
                         .sorted(String.CASE_INSENSITIVE_ORDER)
                         .toList();
         return new ImportWorkflowRequest(workflow.getName(), workflow.getDescription(),
@@ -411,7 +412,7 @@ public class WorkflowService {
             workflow.setStatus(parseStatus(request.status()));
         }
         if (request.tags() != null) {
-            workflow.setTagIds(resolveTagNames(request.tags()));
+            workflow.setTags(cleanTags(request.tags()));
         }
         return toWorkflowDto(workflowRepository.save(workflow));
     }
@@ -614,7 +615,8 @@ public class WorkflowService {
         if (request.status() != null) {
             workflow.setStatus(parseStatus(request.status()));
         }
-        workflow.setTagIds(resolveTagIds(request.tagIds()));
+        workflow.setFolderId(resolveFolderId(request.folderId()));
+        workflow.setTags(cleanTags(request.tags()));
         return toWorkflowDto(workflowRepository.save(workflow));
     }
 
@@ -656,14 +658,13 @@ public class WorkflowService {
     }
 
     private WorkflowDto toWorkflowDto(Workflow w) {
-        List<WorkflowTagDto> tags = w.getTagIds().isEmpty() ? List.of()
-                : tagRepository.findAllById(w.getTagIds()).stream()
-                        .sorted(Comparator.comparing(WorkflowTag::getName, String.CASE_INSENSITIVE_ORDER))
-                        .map(t -> new WorkflowTagDto(t.getId(), t.getName(), t.getColor()))
-                        .toList();
+        List<String> tags = w.getTags().stream()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
         return new WorkflowDto(w.getId(), w.getName(), w.getDescription(),
                 w.getStatus().name(), w.getGroupId(), w.getVersion(),
                 w.getVersionLabel(), w.isCurrent(), w.getOrderIndex(),
+                w.getFolderId(),
                 stepRepository.countByWorkflowId(w.getId()), tags);
     }
 
@@ -717,86 +718,88 @@ public class WorkflowService {
         roleRepository.deleteById(id);
     }
 
-    // ---------------- Tags ----------------
+    // ---------------- Folders ----------------
 
     @Transactional(readOnly = true)
-    public List<WorkflowTagDto> getTags() {
-        return tagRepository.findAllByOrderByNameAsc().stream().map(this::toTagDto).toList();
+    public List<WorkflowFolderDto> getFolders() {
+        return folderRepository.findAllByOrderByOrderIndexAscNameAsc().stream().map(this::toFolderDto).toList();
     }
 
     @Transactional
-    public WorkflowTagDto createTag(WorkflowTagRequest request) {
-        if (tagRepository.existsByNameIgnoreCase(request.name().trim())) {
-            throw new ApiException(HttpStatus.CONFLICT, "Tag name already exists");
+    public WorkflowFolderDto createFolder(WorkflowFolderRequest request) {
+        if (folderRepository.existsByNameIgnoreCase(request.name().trim())) {
+            throw new ApiException(HttpStatus.CONFLICT, "Folder name already exists");
         }
-        WorkflowTag tag = new WorkflowTag();
-        tag.setName(request.name().trim());
-        tag.setColor(request.color());
-        return toTagDto(tagRepository.save(tag));
+        WorkflowFolder folder = new WorkflowFolder();
+        folder.setName(request.name().trim());
+        folder.setColor(request.color());
+        folder.setDescription(request.description());
+        folder.setOrderIndex(request.orderIndex() == null ? (int) folderRepository.count() : request.orderIndex());
+        return toFolderDto(folderRepository.save(folder));
     }
 
     @Transactional
-    public WorkflowTagDto updateTag(Long id, WorkflowTagRequest request) {
-        WorkflowTag tag = tagRepository.findById(id)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Tag not found"));
-        if (tagRepository.existsByNameIgnoreCaseAndIdNot(request.name().trim(), id)) {
-            throw new ApiException(HttpStatus.CONFLICT, "Tag name already exists");
+    public WorkflowFolderDto updateFolder(Long id, WorkflowFolderRequest request) {
+        WorkflowFolder folder = folderRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Folder not found"));
+        if (folderRepository.existsByNameIgnoreCaseAndIdNot(request.name().trim(), id)) {
+            throw new ApiException(HttpStatus.CONFLICT, "Folder name already exists");
         }
-        tag.setName(request.name().trim());
-        tag.setColor(request.color());
-        return toTagDto(tagRepository.save(tag));
+        folder.setName(request.name().trim());
+        folder.setColor(request.color());
+        folder.setDescription(request.description());
+        if (request.orderIndex() != null) {
+            folder.setOrderIndex(request.orderIndex());
+        }
+        return toFolderDto(folderRepository.save(folder));
     }
 
     @Transactional
-    public void deleteTag(Long id) {
-        if (!tagRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Tag not found");
+    public void deleteFolder(Long id) {
+        if (!folderRepository.existsById(id)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Folder not found");
         }
-        // Detach the tag from any workflow that references it, then delete.
+        // Detach the folder from any workflow that references it, then delete (workflows are kept).
         workflowRepository.findAll().forEach(w -> {
-            if (w.getTagIds().remove(id)) {
+            if (id.equals(w.getFolderId())) {
+                w.setFolderId(null);
                 workflowRepository.save(w);
             }
         });
-        tagRepository.deleteById(id);
+        folderRepository.deleteById(id);
     }
 
-    private WorkflowTagDto toTagDto(WorkflowTag t) {
-        return new WorkflowTagDto(t.getId(), t.getName(), t.getColor());
+    private WorkflowFolderDto toFolderDto(WorkflowFolder f) {
+        return new WorkflowFolderDto(f.getId(), f.getName(), f.getColor(), f.getDescription(), f.getOrderIndex());
     }
 
-    /** Validates that each id exists and returns a de-duplicated mutable list. */
-    private List<Long> resolveTagIds(List<Long> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return new ArrayList<>();
+    /** Validates that the folder exists (when provided) and returns the id unchanged (null = ungrouped). */
+    private Long resolveFolderId(Long folderId) {
+        if (folderId == null) {
+            return null;
         }
-        List<Long> result = new ArrayList<>(new LinkedHashSet<>(ids));
-        for (Long id : result) {
-            if (!tagRepository.existsById(id)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Tag not found: " + id);
-            }
+        if (!folderRepository.existsById(folderId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Folder not found: " + folderId);
         }
-        return result;
+        return folderId;
     }
 
-    /** Maps tag names to ids, creating any that do not yet exist (used by import). */
-    private List<Long> resolveTagNames(List<String> names) {
-        List<Long> result = new ArrayList<>();
-        if (names == null) {
+    // ---------------- Tags ----------------
+
+    /** Trims, drops blanks and de-duplicates (case-insensitive, first spelling wins) free-text tags. */
+    private List<String> cleanTags(List<String> tags) {
+        List<String> result = new ArrayList<>();
+        if (tags == null) {
             return result;
         }
-        for (String raw : names) {
+        Set<String> seen = new HashSet<>();
+        for (String raw : tags) {
             if (raw == null || raw.isBlank()) {
                 continue;
             }
             String name = raw.trim();
-            WorkflowTag tag = tagRepository.findFirstByNameIgnoreCase(name).orElseGet(() -> {
-                WorkflowTag created = new WorkflowTag();
-                created.setName(name);
-                return tagRepository.save(created);
-            });
-            if (!result.contains(tag.getId())) {
-                result.add(tag.getId());
+            if (seen.add(name.toLowerCase())) {
+                result.add(name);
             }
         }
         return result;

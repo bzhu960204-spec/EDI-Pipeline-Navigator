@@ -1,12 +1,16 @@
 import { useMemo, useState } from 'react';
 import {
   App as AntApp,
+  Badge,
   Button,
+  Collapse,
+  Empty,
   Form,
   Input,
   Modal,
   Popconfirm,
   Row,
+  Segmented,
   Select,
   Space,
   Table,
@@ -22,14 +26,14 @@ import {
   EditFilled,
   ImportOutlined,
   InboxOutlined,
-  TagsOutlined,
+  FolderOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   createWorkflow,
   deleteWorkflow,
-  fetchTags,
+  fetchFolders,
   fetchWorkflows,
   importWorkflow,
   updateWorkflow,
@@ -40,13 +44,20 @@ import {
 } from '../../api/workflow';
 import { extractErrorMessage } from '../../api/client';
 import { isAdmin, useAuthStore } from '../auth/authStore';
-import { TagManagerPanel } from './TagManagerPanel';
+import { FolderManagerPanel } from './FolderManagerPanel';
+import { colorForTag } from './tagColor';
+
+type LibraryView = 'table' | 'groups';
+const VIEW_STORAGE_KEY = 'edinav-workflow-view';
+const EXPANDED_STORAGE_KEY = 'edinav-workflow-expanded';
+const UNGROUPED_KEY = 'ungrouped';
 
 interface FormValues {
   name: string;
   description?: string;
   status: WorkflowStatus;
-  tagIds?: number[];
+  folderId?: number | null;
+  tags?: string[];
 }
 
 function statusColor(status: WorkflowStatus) {
@@ -63,23 +74,58 @@ export function SubWorkflowsPage() {
   const [editing, setEditing] = useState<Workflow | null | undefined>(undefined);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
-  const [tagsOpen, setTagsOpen] = useState(false);
+  const [foldersOpen, setFoldersOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<WorkflowStatus | undefined>(undefined);
-  const [tagFilter, setTagFilter] = useState<number[]>([]);
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [view, setView] = useState<LibraryView>(
+    () => (localStorage.getItem(VIEW_STORAGE_KEY) as LibraryView) || 'table',
+  );
+  const [expandedKeys, setExpandedKeys] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(EXPANDED_STORAGE_KEY) ?? '[]') as string[];
+    } catch {
+      return [];
+    }
+  });
+
+  const selectView = (next: LibraryView) => {
+    setView(next);
+    localStorage.setItem(VIEW_STORAGE_KEY, next);
+  };
+
+  const onExpandChange = (keys: string | string[]) => {
+    const next = Array.isArray(keys) ? keys : [keys];
+    setExpandedKeys(next);
+    localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(next));
+  };
 
   const { data: workflows = [], isLoading } = useQuery({
     queryKey: ['workflows'],
     queryFn: () => fetchWorkflows(),
   });
 
-  const { data: tags = [] } = useQuery({ queryKey: ['tags'], queryFn: fetchTags });
+  const { data: folders = [] } = useQuery({ queryKey: ['folders'], queryFn: fetchFolders });
+
+  const allTags = useMemo(() => {
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const wf of workflows) {
+      for (const t of wf.tags) {
+        if (!seen.has(t)) {
+          seen.add(t);
+          list.push(t);
+        }
+      }
+    }
+    return list.sort((a, b) => a.localeCompare(b));
+  }, [workflows]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return workflows.filter((wf) => {
       if (statusFilter && wf.status !== statusFilter) return false;
-      if (tagFilter.length > 0 && !tagFilter.every((id) => wf.tags.some((t) => t.id === id))) return false;
+      if (tagFilter.length > 0 && !tagFilter.every((t) => wf.tags.includes(t))) return false;
       if (q) {
         const haystack = `${wf.name} ${wf.description ?? ''}`.toLowerCase();
         if (!haystack.includes(q)) return false;
@@ -105,7 +151,8 @@ export function SubWorkflowsPage() {
         name: values.name,
         description: values.description,
         status: values.status,
-        tagIds: values.tagIds ?? [],
+        folderId: values.folderId ?? null,
+        tags: values.tags ?? [],
       };
       return editing ? updateWorkflow(editing.id, payload) : createWorkflow(payload);
     },
@@ -159,7 +206,7 @@ export function SubWorkflowsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    form.setFieldsValue({ name: '', description: '', status: 'DRAFT', tagIds: [] });
+    form.setFieldsValue({ name: '', description: '', status: 'DRAFT', folderId: null, tags: [] });
   };
 
   const openEdit = (wf: Workflow) => {
@@ -168,7 +215,8 @@ export function SubWorkflowsPage() {
       name: wf.name,
       description: wf.description ?? '',
       status: wf.status,
-      tagIds: wf.tags.map((t) => t.id),
+      folderId: wf.folderId ?? null,
+      tags: wf.tags,
     });
   };
 
@@ -230,6 +278,64 @@ export function SubWorkflowsPage() {
     },
   ];
 
+  const groupTable = (rows: Workflow[]) => (
+    <Table
+      rowKey="id"
+      columns={columns}
+      dataSource={rows}
+      pagination={false}
+      size="small"
+      locale={{ emptyText: 'No workflows in this folder' }}
+    />
+  );
+
+  const groupHeader = (name: string, count: number, color: string, description?: string | null) => (
+    <Space>
+      <Tag color={color}>{name}</Tag>
+      <Badge count={count} showZero color="#8c8c8c" />
+      {description && (
+        <Typography.Text type="secondary" ellipsis style={{ maxWidth: 320 }}>
+          {description}
+        </Typography.Text>
+      )}
+    </Space>
+  );
+
+  const groupItems = useMemo(() => {
+    const byFolder = new Map<number, Workflow[]>();
+    const ungrouped: Workflow[] = [];
+    const folderIds = new Set(folders.map((f) => f.id));
+    for (const wf of filtered) {
+      if (wf.folderId != null && folderIds.has(wf.folderId)) {
+        const list = byFolder.get(wf.folderId) ?? [];
+        list.push(wf);
+        byFolder.set(wf.folderId, list);
+      } else {
+        ungrouped.push(wf);
+      }
+    }
+    const items = folders
+      .filter((folder) => (byFolder.get(folder.id)?.length ?? 0) > 0 || !hasFilters)
+      .map((folder) => {
+        const rows = byFolder.get(folder.id) ?? [];
+        return {
+          key: `folder-${folder.id}`,
+          label: groupHeader(folder.name, rows.length, colorForTag(folder.name), folder.description),
+          children: groupTable(rows),
+        };
+      });
+    if (ungrouped.length > 0) {
+      items.push({
+        key: UNGROUPED_KEY,
+        label: groupHeader('Ungrouped', ungrouped.length, 'default'),
+        children: groupTable(ungrouped),
+      });
+    }
+    return items;
+    // groupTable/groupHeader are stable render helpers; columns rebuilds each render (acceptable)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, folders, hasFilters]);
+
   return (
     <div>
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
@@ -238,8 +344,8 @@ export function SubWorkflowsPage() {
         </Typography.Title>
         {admin && (
           <Space>
-            <Button icon={<TagsOutlined />} onClick={() => setTagsOpen(true)}>
-              Manage tags
+            <Button icon={<FolderOutlined />} onClick={() => setFoldersOpen(true)}>
+              Manage folders
             </Button>
             <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
               Import JSON
@@ -277,18 +383,36 @@ export function SubWorkflowsPage() {
           value={tagFilter}
           onChange={(v) => setTagFilter(v)}
           style={{ minWidth: 220 }}
-          options={tags.map((t) => ({ value: t.id, label: t.name }))}
+          options={allTags.map((t) => ({ value: t, label: t }))}
         />
         {hasFilters && <Button onClick={clearFilters}>Clear filters</Button>}
+        <Segmented
+          value={view}
+          onChange={(v) => selectView(v as LibraryView)}
+          options={[
+            { label: 'Table', value: 'table' },
+            { label: 'Groups', value: 'groups' },
+          ]}
+        />
       </Space>
 
-      <Table
-        rowKey="id"
-        loading={isLoading}
-        columns={columns}
-        dataSource={filtered}
-        pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `${total} workflow(s)` }}
-      />
+      {view === 'table' ? (
+        <Table
+          rowKey="id"
+          loading={isLoading}
+          columns={columns}
+          dataSource={filtered}
+          pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `${total} workflow(s)` }}
+        />
+      ) : (
+        <>
+          {groupItems.length === 0 ? (
+            <Empty description={hasFilters ? 'No workflows match the filters' : 'No workflows yet'} />
+          ) : (
+            <Collapse items={groupItems} activeKey={expandedKeys} onChange={onExpandChange} />
+          )}
+        </>
+      )}
 
       <Modal
         open={editing !== undefined}
@@ -305,12 +429,20 @@ export function SubWorkflowsPage() {
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={3} maxLength={4000} />
           </Form.Item>
-          <Form.Item name="tagIds" label="Tags">
+          <Form.Item name="folderId" label="Folder">
             <Select
-              mode="multiple"
               allowClear
-              placeholder="Attach tags"
-              options={tags.map((t) => ({ value: t.id, label: t.name }))}
+              placeholder="Ungrouped"
+              options={folders.map((f) => ({ value: f.id, label: f.name }))}
+            />
+          </Form.Item>
+          <Form.Item name="tags" label="Tags">
+            <Select
+              mode="tags"
+              allowClear
+              placeholder="Type a tag and press Enter"
+              tokenSeparators={[',']}
+              options={allTags.map((t) => ({ value: t, label: t }))}
             />
           </Form.Item>
           <Form.Item name="status" label="Status" rules={[{ required: true }]}>
@@ -353,13 +485,13 @@ export function SubWorkflowsPage() {
       </Modal>
 
       <Modal
-        open={tagsOpen}
-        title="Manage workflow tags"
+        open={foldersOpen}
+        title="Manage workflow folders"
         footer={null}
-        width={520}
-        onCancel={() => setTagsOpen(false)}
+        width={560}
+        onCancel={() => setFoldersOpen(false)}
       >
-        <TagManagerPanel tags={tags} editable={admin} />
+        <FolderManagerPanel folders={folders} editable={admin} />
       </Modal>
     </div>
   );
