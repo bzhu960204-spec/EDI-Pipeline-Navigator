@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   App as AntApp,
   Badge,
@@ -30,6 +30,18 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
 import {
   createWorkflow,
   deleteWorkflow,
@@ -63,6 +75,43 @@ interface FormValues {
 function statusColor(status: WorkflowStatus) {
   return status === 'PUBLISHED' ? 'green' : 'default';
 }
+
+// Row rendered inside group tables; whole row is a pointer-drag source (no cursor change).
+function DraggableBodyRow(props: Readonly<Record<string, unknown>>) {
+  const rowKey = props['data-row-key'] as number | undefined;
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `wf-${rowKey}`,
+    data: { workflowId: rowKey },
+    disabled: rowKey == null,
+  });
+  const style = { ...(props.style as object), opacity: isDragging ? 0.4 : 1, touchAction: 'none' };
+  return <tr {...props} {...attributes} {...listeners} ref={setNodeRef} style={style} />;
+}
+
+const dragRowComponents = { body: { row: DraggableBodyRow } };
+
+// A folder (or Ungrouped) drop target; highlights while a row hovers over it.
+function DropZone({
+  id,
+  folderId,
+  children,
+}: Readonly<{ id: string; folderId: number | null; children: ReactNode }>) {
+  const { setNodeRef, isOver } = useDroppable({ id, data: { folderId } });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        borderRadius: 6,
+        outline: isOver ? '2px dashed #1677ff' : '2px dashed transparent',
+        background: isOver ? 'rgba(22,119,255,0.06)' : undefined,
+        transition: 'outline-color 0.15s, background 0.15s',
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 
 export function SubWorkflowsPage() {
   const { message } = AntApp.useApp();
@@ -172,6 +221,50 @@ export function SubWorkflowsPage() {
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete workflow')),
   });
+
+  const move = useMutation({
+    mutationFn: ({ wf, folderId }: { wf: Workflow; folderId: number | null }) =>
+      updateWorkflow(wf.id, {
+        name: wf.name,
+        description: wf.description ?? undefined,
+        status: wf.status,
+        folderId,
+        tags: wf.tags,
+      }),
+    onMutate: async ({ wf, folderId }) => {
+      await queryClient.cancelQueries({ queryKey: ['workflows'] });
+      const prev = queryClient.getQueryData<Workflow[]>(['workflows']);
+      queryClient.setQueryData<Workflow[]>(['workflows'], (old) =>
+        (old ?? []).map((w) => (w.id === wf.id ? { ...w, folderId } : w)),
+      );
+      return { prev };
+    },
+    onError: (e, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['workflows'], ctx.prev);
+      message.error(extractErrorMessage(e, 'Failed to move workflow'));
+    },
+    onSettled: () => invalidate(),
+  });
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const [activeWf, setActiveWf] = useState<Workflow | null>(null);
+
+  const onDragStart = (e: DragStartEvent) => {
+    const id = e.active.data.current?.workflowId as number | undefined;
+    setActiveWf(workflows.find((w) => w.id === id) ?? null);
+  };
+
+  const onDragEnd = (e: DragEndEvent) => {
+    setActiveWf(null);
+    const wfId = e.active.data.current?.workflowId as number | undefined;
+    if (wfId == null || e.over == null) return;
+    const wf = workflows.find((w) => w.id === wfId);
+    if (!wf) return;
+    const dest = (e.over.data.current?.folderId ?? null) as number | null;
+    if ((wf.folderId ?? null) === dest) return;
+    move.mutate({ wf, folderId: dest });
+  };
+
 
   const runImport = useMutation({
     mutationFn: (payload: ImportWorkflowPayload) => importWorkflow(payload),
@@ -285,7 +378,8 @@ export function SubWorkflowsPage() {
       dataSource={rows}
       pagination={false}
       size="small"
-      locale={{ emptyText: 'No workflows in this folder' }}
+      components={admin ? dragRowComponents : undefined}
+      locale={{ emptyText: admin ? 'Drop a workflow here' : 'No workflows in this folder' }}
     />
   );
 
@@ -315,26 +409,73 @@ export function SubWorkflowsPage() {
       }
     }
     const items = folders
-      .filter((folder) => (byFolder.get(folder.id)?.length ?? 0) > 0 || !hasFilters)
+      .filter((folder) => (byFolder.get(folder.id)?.length ?? 0) > 0 || !hasFilters || admin)
       .map((folder) => {
         const rows = byFolder.get(folder.id) ?? [];
         return {
           key: `folder-${folder.id}`,
-          label: groupHeader(folder.name, rows.length, colorForTag(folder.name), folder.description),
-          children: groupTable(rows),
+          label: (
+            <DropZone id={`hdr-folder-${folder.id}`} folderId={folder.id}>
+              {groupHeader(folder.name, rows.length, colorForTag(folder.name), folder.description)}
+            </DropZone>
+          ),
+          children: (
+            <DropZone id={`body-folder-${folder.id}`} folderId={folder.id}>
+              {groupTable(rows)}
+            </DropZone>
+          ),
         };
       });
-    if (ungrouped.length > 0) {
+    if (ungrouped.length > 0 || admin) {
       items.push({
         key: UNGROUPED_KEY,
-        label: groupHeader('Ungrouped', ungrouped.length, 'default'),
-        children: groupTable(ungrouped),
+        label: (
+          <DropZone id="hdr-ungrouped" folderId={null}>
+            {groupHeader('Ungrouped', ungrouped.length, 'default')}
+          </DropZone>
+        ),
+        children: (
+          <DropZone id="body-ungrouped" folderId={null}>
+            {groupTable(ungrouped)}
+          </DropZone>
+        ),
       });
     }
     return items;
     // groupTable/groupHeader are stable render helpers; columns rebuilds each render (acceptable)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, folders, hasFilters]);
+  }, [filtered, folders, hasFilters, admin]);
+
+  const plainCollapse = (
+    <Collapse items={groupItems} activeKey={expandedKeys} onChange={onExpandChange} />
+  );
+  let groupsView: ReactNode;
+  if (groupItems.length === 0) {
+    groupsView = (
+      <Empty description={hasFilters ? 'No workflows match the filters' : 'No workflows yet'} />
+    );
+  } else if (admin) {
+    groupsView = (
+      <DndContext
+        sensors={sensors}
+        collisionDetection={pointerWithin}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onDragCancel={() => setActiveWf(null)}
+      >
+        {plainCollapse}
+        <DragOverlay dropAnimation={null}>
+          {activeWf ? (
+            <Tag color={colorForTag(activeWf.name)} style={{ padding: '2px 8px' }}>
+              {activeWf.name}
+            </Tag>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    );
+  } else {
+    groupsView = plainCollapse;
+  }
 
   return (
     <div>
@@ -405,13 +546,7 @@ export function SubWorkflowsPage() {
           pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `${total} workflow(s)` }}
         />
       ) : (
-        <>
-          {groupItems.length === 0 ? (
-            <Empty description={hasFilters ? 'No workflows match the filters' : 'No workflows yet'} />
-          ) : (
-            <Collapse items={groupItems} activeKey={expandedKeys} onChange={onExpandChange} />
-          )}
-        </>
+        groupsView
       )}
 
       <Modal
