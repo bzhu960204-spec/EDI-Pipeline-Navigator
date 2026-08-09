@@ -184,6 +184,21 @@ export function WorkflowPage() {
   const selectedStep = selectedId != null ? findStep(tree, selectedId) : null;
   const incomingIndex = useMemo(() => buildIncomingIndex(tree), [tree]);
 
+  // childId -> parentId across the whole tree, for expanding a target's ancestor chain on navigate.
+  const parentMap = useMemo(() => {
+    const map = new Map<number, number>();
+    const walk = (list: WorkflowStep[], parent: number | null) => {
+      list.forEach((s) => {
+        if (parent != null) map.set(s.id, parent);
+        if (s.children?.length) walk(s.children, s.id);
+      });
+    };
+    walk(tree, null);
+    return map;
+  }, [tree]);
+
+  const treeScrollRef = useRef<HTMLDivElement>(null);
+
   // Auto-expand phase group headers once when entering the grouped view.
   const groupSeeded = useRef(false);
   useEffect(() => {
@@ -197,6 +212,17 @@ export function WorkflowPage() {
       groupSeeded.current = true;
     }
   }, [grouped, groupedTreeData]);
+
+  // Bring the selected tree node into view after any programmatic selection/expansion.
+  useEffect(() => {
+    if (view !== 'tree' || selectedId == null) return;
+    const raf = requestAnimationFrame(() => {
+      treeScrollRef.current
+        ?.querySelector('.ant-tree-node-selected')
+        ?.scrollIntoView({ block: 'nearest' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [selectedId, expandedKeys, view]);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['workflow', workflowId] });
 
@@ -306,7 +332,23 @@ export function WorkflowPage() {
 
   const navigateTo = (stepId: number) => {
     setSelectedId(stepId);
-    setExpandedKeys((keys) => Array.from(new Set([...keys, stepId])));
+    const keys: React.Key[] = [];
+    let cur = parentMap.get(stepId);
+    while (cur != null) {
+      keys.push(cur);
+      cur = parentMap.get(cur);
+    }
+    if (grouped) {
+      let root = stepId;
+      let p = parentMap.get(root);
+      while (p != null) {
+        root = p;
+        p = parentMap.get(root);
+      }
+      const rootStep = findStep(tree, root);
+      keys.push(rootStep?.phase ? `phase-${rootStep.phase.id}` : 'phase-none');
+    }
+    setExpandedKeys((prev) => Array.from(new Set([...prev, ...keys])));
   };
 
   let modalTitle = 'Add root step';
@@ -381,7 +423,7 @@ export function WorkflowPage() {
     );
   } else {
     leftPanel = (
-      <div style={{ border: '1px solid rgba(5,5,5,0.06)', borderRadius: 8, padding: 12 }}>
+      <div ref={treeScrollRef} style={{ border: '1px solid rgba(5,5,5,0.06)', borderRadius: 8, padding: 12 }}>
         <Tree
           showLine
           blockNode
@@ -503,6 +545,7 @@ export function WorkflowPage() {
             {leftPanel}
           </Col>
           <Col xs={24} md={view === 'graph' ? 9 : 14} lg={view === 'graph' ? 8 : 15}>
+            <div style={{ position: 'sticky', top: 16, maxHeight: 'calc(100vh - 200px)', overflow: 'auto' }}>
             <StepDetail
               step={selectedStep}
               isAdmin={admin}
@@ -515,6 +558,7 @@ export function WorkflowPage() {
               onDeleteTransition={(t) => removeTransition.mutate(t)}
               onNavigate={navigateTo}
             />
+            </div>
           </Col>
         </Row>
       )}
