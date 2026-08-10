@@ -5,11 +5,6 @@ import com.dsv.edinav.artifact.ArtifactRepository;
 import com.dsv.edinav.workflow.dto.BusinessRoleDto;
 import com.dsv.edinav.workflow.dto.CreateStepRequest;
 import com.dsv.edinav.workflow.dto.CreateTransitionRequest;
-import com.dsv.edinav.workflow.dto.CreateVersionRequest;
-import com.dsv.edinav.workflow.dto.ImportPhaseNode;
-import com.dsv.edinav.workflow.dto.ImportStepNode;
-import com.dsv.edinav.workflow.dto.ImportTransition;
-import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
 import com.dsv.edinav.workflow.dto.TransitionDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
@@ -21,11 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -98,62 +90,12 @@ public class WorkflowService {
     }
 
     /** Saves a brand-new workflow as version 1 of its own group (groupId = the row's own id). */
-    private Workflow saveAsNewGroup(Workflow workflow) {
+    Workflow saveAsNewGroup(Workflow workflow) {
         workflow.setVersion(1);
         workflow.setCurrent(true);
         Workflow saved = workflowRepository.save(workflow);
         saved.setGroupId(saved.getId());
         return workflowRepository.save(saved);
-    }
-
-    @Transactional
-    public WorkflowDto importWorkflow(ImportWorkflowRequest request) {
-        String name = request.name() == null ? null : request.name().trim();
-        if (name == null || name.isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Workflow name is required");
-        }
-        if (workflowRepository.existsByNameIgnoreCase(name)) {
-            throw new ApiException(HttpStatus.CONFLICT, "Workflow name already exists");
-        }
-        Workflow workflow = new Workflow();
-        workflow.setName(name);
-        workflow.setDescription(request.description());
-        workflow.setStatus(request.status() == null ? WorkflowStatus.DRAFT : parseStatus(request.status()));
-        workflow.setOrderIndex(workflowRepository.nextOrderIndex());
-        workflow.setTags(cleanTags(request.tags()));
-        saveAsNewGroup(workflow);
-        populateFromImport(workflow, request);
-        return toWorkflowDto(workflow);
-    }
-
-    /** Creates the phases, step tree and transitions of {@code workflow} from an import payload. */
-    private void populateFromImport(Workflow workflow, ImportWorkflowRequest request) {
-        Map<String, Long> refToId = new LinkedHashMap<>();
-        Map<String, BusinessRole> roleCache = new HashMap<>();
-        Map<String, Long> phaseRefToId = importPhases(request.phases(), workflow.getId());
-        importSteps(request.steps(), null, workflow.getId(), refToId, roleCache, phaseRefToId);
-        importTransitions(request.transitions(), refToId);
-    }
-
-    /** Creates a new editable version (deep copy) of a workflow within the same group; not current. */
-    @Transactional
-    public WorkflowDto createVersion(Long sourceId, CreateVersionRequest request) {
-        Workflow source = requireWorkflow(sourceId);
-        ImportWorkflowRequest snapshot = exportWorkflow(sourceId, true);
-        Workflow version = new Workflow();
-        version.setName(source.getName());
-        version.setDescription(source.getDescription());
-        version.setStatus(source.getStatus());
-        version.setGroupId(source.getGroupId());
-        version.setVersion(workflowRepository.nextVersion(source.getGroupId()));
-        version.setVersionLabel(request == null ? null : request.label());
-        version.setCurrent(false);
-        version.setOrderIndex(source.getOrderIndex());
-        version.setFolderId(source.getFolderId());
-        version.setTags(new ArrayList<>(source.getTags()));
-        workflowRepository.save(version);
-        populateFromImport(version, snapshot);
-        return toWorkflowDto(version);
     }
 
     /** Updates only the (optional) label/remark of a single version. */
@@ -177,425 +119,6 @@ public class WorkflowService {
         });
         target.setCurrent(true);
         return toWorkflowDto(workflowRepository.save(target));
-    }
-
-    private void importSteps(List<ImportStepNode> nodes, Long parentId, Long workflowId,
-                             Map<String, Long> refToId, Map<String, BusinessRole> roleCache,
-                             Map<String, Long> phaseRefToId) {
-        if (nodes == null) {
-            return;
-        }
-        int order = 0;
-        for (ImportStepNode node : nodes) {
-            String ref = node.ref() == null ? null : node.ref().trim();
-            if (ref == null || ref.isEmpty()) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Every step needs a non-empty 'ref'");
-            }
-            if (refToId.containsKey(ref)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Duplicate step ref: " + ref);
-            }
-            if (node.name() == null || node.name().isBlank()) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Step '" + ref + "' is missing a name");
-            }
-            WorkflowStep step = new WorkflowStep();
-            step.setWorkflowId(workflowId);
-            step.setParentId(parentId);
-            step.setName(node.name().trim());
-            step.setDescription(node.description());
-            step.setNotes(node.notes());
-            step.setLineageKey(node.lineageKey());
-            step.setBusinessRoleIds(resolveRoles(node.roles(), node.role(), roleCache));
-            step.setPhaseId(resolveImportedPhase(node.phase(), phaseRefToId));
-            step.setOrderIndex(order++);
-            stepRepository.save(step);
-            refToId.put(ref, step.getId());
-            importSteps(node.children(), step.getId(), workflowId, refToId, roleCache, phaseRefToId);
-        }
-    }
-
-    /** Creates each imported phase and returns a map from its caller {@code ref} (or name) to the new id. */
-    private Map<String, Long> importPhases(List<ImportPhaseNode> phases, Long workflowId) {
-        Map<String, Long> refToId = new LinkedHashMap<>();
-        if (phases == null) {
-            return refToId;
-        }
-        int order = 0;
-        for (ImportPhaseNode node : phases) {
-            if (node.name() == null || node.name().isBlank()) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Every phase needs a name");
-            }
-            WorkflowPhase phase = new WorkflowPhase();
-            phase.setWorkflowId(workflowId);
-            phase.setName(node.name().trim());
-            phase.setColor(node.color());
-            phase.setDescription(node.description());
-            phase.setOrderIndex(node.orderIndex() != null ? node.orderIndex() : order);
-            phaseRepository.save(phase);
-            String key = node.ref() != null && !node.ref().isBlank() ? node.ref().trim() : node.name().trim();
-            refToId.put(key, phase.getId());
-            order++;
-        }
-        return refToId;
-    }
-
-    private Long resolveImportedPhase(String phaseRef, Map<String, Long> phaseRefToId) {
-        if (phaseRef == null || phaseRef.isBlank()) {
-            return null;
-        }
-        Long id = phaseRefToId.get(phaseRef.trim());
-        if (id == null) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Step references an unknown phase: " + phaseRef);
-        }
-        return id;
-    }
-
-    private void importTransitions(List<ImportTransition> transitions, Map<String, Long> refToId) {
-        if (transitions == null) {
-            return;
-        }
-        Map<Long, Integer> orderByFrom = new HashMap<>();
-        for (ImportTransition t : transitions) {
-            Long fromId = requireRefId(t.from(), refToId, "transition 'from'");
-            Long toId = requireRefId(t.to(), refToId, "transition 'to'");
-            if (fromId.equals(toId)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "A step cannot transition to itself: " + t.from());
-            }
-            WorkflowTransition transition = new WorkflowTransition();
-            transition.setFromStepId(fromId);
-            transition.setToStepId(toId);
-            transition.setLabel(t.label());
-            transition.setOrderIndex(orderByFrom.merge(fromId, 1, Integer::sum) - 1);
-            transitionRepository.save(transition);
-        }
-    }
-
-    private Long requireRefId(String ref, Map<String, Long> refToId, String context) {
-        String key = ref == null ? null : ref.trim();
-        Long id = key == null ? null : refToId.get(key);
-        if (id == null) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, context + " references an unknown step: " + ref);
-        }
-        return id;
-    }
-
-    // ---------------- Export ----------------
-
-    /**
-     * Serialises a workflow into the same JSON shape accepted by import, so it round-trips.
-     * Steps/phases are keyed by stable id-derived refs (s&lt;id&gt; / p&lt;id&gt;), which lets a later
-     * update-import match them back to the existing rows. Phases are omitted unless requested.
-     */
-    @Transactional(readOnly = true)
-    public ImportWorkflowRequest exportWorkflow(Long id, boolean includePhases) {
-        Workflow workflow = requireWorkflow(id);
-        List<WorkflowStep> steps = stepRepository.findByWorkflowIdOrderByOrderIndexAsc(id);
-        Map<Long, BusinessRole> roles = roleRepository.findAll().stream()
-                .collect(Collectors.toMap(BusinessRole::getId, Function.identity()));
-        Map<Long, WorkflowPhase> phasesById = phaseRepository.findByWorkflowIdOrderByOrderIndexAsc(id).stream()
-                .collect(Collectors.toMap(WorkflowPhase::getId, Function.identity()));
-        Map<Long, List<WorkflowStep>> byParent = steps.stream()
-                .collect(Collectors.groupingBy(s -> s.getParentId() == null ? 0L : s.getParentId()));
-        List<ImportStepNode> stepNodes = exportStepNodes(0L, byParent, roles, phasesById, includePhases);
-
-        List<Long> stepIds = steps.stream().map(WorkflowStep::getId).toList();
-        List<ImportTransition> transitions = transitionRepository.findAll().stream()
-                .filter(t -> stepIds.contains(t.getFromStepId()))
-                .sorted(Comparator.comparingInt(WorkflowTransition::getOrderIndex))
-                .map(t -> new ImportTransition(stepRef(t.getFromStepId()), stepRef(t.getToStepId()), t.getLabel()))
-                .toList();
-
-        List<ImportPhaseNode> phaseNodes = null;
-        if (includePhases) {
-            phaseNodes = phaseRepository.findByWorkflowIdOrderByOrderIndexAsc(id).stream()
-                    .map(p -> new ImportPhaseNode(phaseRef(p.getId()), p.getName(), p.getColor(),
-                            p.getOrderIndex(), p.getDescription()))
-                    .toList();
-        }
-        List<String> tagNames = workflow.getTags().isEmpty() ? null
-                : workflow.getTags().stream()
-                        .sorted(String.CASE_INSENSITIVE_ORDER)
-                        .toList();
-        return new ImportWorkflowRequest(workflow.getName(), workflow.getDescription(),
-                workflow.getStatus().name(), tagNames,
-                phaseNodes, stepNodes, transitions);
-    }
-
-    private List<ImportStepNode> exportStepNodes(Long parentKey, Map<Long, List<WorkflowStep>> byParent,
-                                                 Map<Long, BusinessRole> roles,
-                                                 Map<Long, WorkflowPhase> phasesById, boolean includePhases) {
-        return byParent.getOrDefault(parentKey, List.of()).stream()
-                .sorted(Comparator.comparingInt(WorkflowStep::getOrderIndex))
-                .map(step -> {
-                    List<String> roleNames = step.getBusinessRoleIds().stream()
-                            .map(roles::get).filter(Objects::nonNull).map(BusinessRole::getName).toList();
-                    String phaseRef = null;
-                    if (includePhases && step.getPhaseId() != null && phasesById.containsKey(step.getPhaseId())) {
-                        phaseRef = phaseRef(step.getPhaseId());
-                    }
-                    List<ImportStepNode> children = exportStepNodes(step.getId(), byParent, roles, phasesById, includePhases);
-                    return new ImportStepNode(stepRef(step.getId()), step.getLineageKey(), step.getName(), step.getDescription(),
-                            step.getNotes(), null, roleNames.isEmpty() ? null : roleNames, phaseRef,
-                            children.isEmpty() ? null : children);
-                })
-                .toList();
-    }
-
-    private String stepRef(Long stepId) {
-        return "s" + stepId;
-    }
-
-    private String phaseRef(Long phaseId) {
-        return "p" + phaseId;
-    }
-
-    // ---------------- Update from import ----------------
-
-    /**
-     * Updates an existing workflow in place from an imported JSON. Steps are upserted by ref
-     * (id-derived refs match existing rows, unknown refs become new steps, existing rows absent
-     * from the JSON are removed). Phases self-adapt: when the JSON carries no phases, existing
-     * phases are kept, matched steps retain their phase and new steps inherit their parent's phase.
-     */
-    @Transactional
-    public WorkflowDto updateWorkflowFromImport(Long id, ImportWorkflowRequest request) {
-        Workflow workflow = requireWorkflow(id);
-        String name = request.name() == null ? null : request.name().trim();
-        if (name == null || name.isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Workflow name is required");
-        }
-        if (workflowRepository.existsByNameIgnoreCaseAndGroupIdNot(name, workflow.getGroupId())) {
-            throw new ApiException(HttpStatus.CONFLICT, "Workflow name already exists");
-        }
-
-        Map<Long, WorkflowStep> existingById = stepRepository.findByWorkflowIdOrderByOrderIndexAsc(id).stream()
-                .collect(Collectors.toMap(WorkflowStep::getId, Function.identity(), (a, b) -> a, LinkedHashMap::new));
-
-        boolean hasPhases = request.phases() != null && !request.phases().isEmpty();
-        Map<String, Long> phaseRefToId = hasPhases ? reconcilePhases(request.phases(), id) : new LinkedHashMap<>();
-        Map<String, Long> existingPhaseByName = phaseRepository.findByWorkflowIdOrderByOrderIndexAsc(id).stream()
-                .collect(Collectors.toMap(p -> p.getName().toLowerCase(), WorkflowPhase::getId, (a, b) -> a));
-
-        // Drop this workflow's transitions up front; they are fully re-created from the JSON below.
-        List<Long> existingIds = new ArrayList<>(existingById.keySet());
-        transitionRepository.findAll().stream()
-                .filter(t -> existingIds.contains(t.getFromStepId()) || existingIds.contains(t.getToStepId()))
-                .forEach(transitionRepository::delete);
-
-        UpdateImportContext ctx = new UpdateImportContext(id, existingById, phaseRefToId,
-                existingPhaseByName, hasPhases);
-        upsertSteps(request.steps(), null, null, ctx);
-
-        // Remove steps that vanished from the JSON, unless an artifact currently sits on one.
-        List<Long> toDelete = existingIds.stream().filter(sid -> !ctx.seen.contains(sid)).toList();
-        for (Long sid : toDelete) {
-            long onStep = artifactRepository.countByCurrentStepId(sid);
-            if (onStep > 0) {
-                throw new ApiException(HttpStatus.CONFLICT, "Cannot remove step '"
-                        + existingById.get(sid).getName() + "' because " + onStep
-                        + " artifact(s) are currently on it");
-            }
-        }
-        if (!toDelete.isEmpty()) {
-            stepRepository.deleteAllById(toDelete);
-        }
-
-        importTransitions(request.transitions(), ctx.refToId);
-
-        workflow.setName(name);
-        workflow.setDescription(request.description());
-        if (request.status() != null) {
-            workflow.setStatus(parseStatus(request.status()));
-        }
-        if (request.tags() != null) {
-            workflow.setTags(cleanTags(request.tags()));
-        }
-        return toWorkflowDto(workflowRepository.save(workflow));
-    }
-
-    /** Mutable state threaded through the recursive step upsert during an update-import. */
-    private static final class UpdateImportContext {
-        final Long workflowId;
-        final Map<Long, WorkflowStep> existingById;
-        final Map<String, Long> phaseRefToId;
-        final Map<String, Long> existingPhaseByName;
-        final boolean hasPhases;
-        final Map<String, Long> refToId = new LinkedHashMap<>();
-        final Set<Long> seen = new HashSet<>();
-        final Map<String, BusinessRole> roleCache = new HashMap<>();
-
-        UpdateImportContext(Long workflowId, Map<Long, WorkflowStep> existingById,
-                            Map<String, Long> phaseRefToId, Map<String, Long> existingPhaseByName,
-                            boolean hasPhases) {
-            this.workflowId = workflowId;
-            this.existingById = existingById;
-            this.phaseRefToId = phaseRefToId;
-            this.existingPhaseByName = existingPhaseByName;
-            this.hasPhases = hasPhases;
-        }
-    }
-
-    private void upsertSteps(List<ImportStepNode> nodes, Long parentId, Long parentPhaseId, UpdateImportContext ctx) {
-        if (nodes == null) {
-            return;
-        }
-        int order = 0;
-        for (ImportStepNode node : nodes) {
-            String ref = node.ref() == null ? null : node.ref().trim();
-            if (ref == null || ref.isEmpty()) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Every step needs a non-empty 'ref'");
-            }
-            if (ctx.refToId.containsKey(ref)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Duplicate step ref: " + ref);
-            }
-            if (node.name() == null || node.name().isBlank()) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Step '" + ref + "' is missing a name");
-            }
-            Long matchedId = matchExistingStep(ref, ctx.existingById);
-            WorkflowStep step;
-            boolean isNew;
-            if (matchedId != null) {
-                step = ctx.existingById.get(matchedId);
-                isNew = false;
-                ctx.seen.add(matchedId);
-            } else {
-                step = new WorkflowStep();
-                step.setWorkflowId(ctx.workflowId);
-                step.setLineageKey(node.lineageKey());
-                isNew = true;
-            }
-            step.setParentId(parentId);
-            step.setName(node.name().trim());
-            step.setDescription(node.description());
-            step.setNotes(node.notes());
-            step.setBusinessRoleIds(resolveRoles(node.roles(), node.role(), ctx.roleCache));
-            Long phaseId = resolvePhaseForUpdate(node, isNew, step, parentPhaseId, ctx);
-            step.setPhaseId(phaseId);
-            step.setOrderIndex(order++);
-            stepRepository.save(step);
-            ctx.refToId.put(ref, step.getId());
-            upsertSteps(node.children(), step.getId(), phaseId, ctx);
-        }
-    }
-
-    /** Resolves a step {@code ref} back to an existing row id, accepting {@code s<id>} or a bare numeric id. */
-    private Long matchExistingStep(String ref, Map<Long, WorkflowStep> existingById) {
-        Long candidate = parseIdRef(ref, 's');
-        if (candidate == null) {
-            candidate = parseIdRef(ref, null);
-        }
-        return candidate != null && existingById.containsKey(candidate) ? candidate : null;
-    }
-
-    private Long parseIdRef(String ref, Character prefix) {
-        try {
-            if (prefix == null) {
-                return Long.parseLong(ref);
-            }
-            if (ref.length() > 1 && ref.charAt(0) == prefix) {
-                return Long.parseLong(ref.substring(1));
-            }
-        } catch (NumberFormatException ignored) {
-            // Not an id-derived ref; treat as a new/opaque key.
-        }
-        return null;
-    }
-
-    private Long resolvePhaseForUpdate(ImportStepNode node, boolean isNew, WorkflowStep step,
-                                       Long parentPhaseId, UpdateImportContext ctx) {
-        String phaseRef = node.phase() == null ? null : node.phase().trim();
-        if (phaseRef != null && !phaseRef.isEmpty()) {
-            Long pid = ctx.phaseRefToId.get(phaseRef);
-            if (pid == null) {
-                pid = ctx.existingPhaseByName.get(phaseRef.toLowerCase());
-            }
-            if (pid != null) {
-                return pid;
-            }
-            if (ctx.hasPhases) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Step references an unknown phase: " + node.phase());
-            }
-            // Adaptation mode with an unresolved phase name: fall through to the adaptive default.
-        }
-        if (!isNew) {
-            return step.getPhaseId();
-        }
-        return parentPhaseId;
-    }
-
-    /** Upserts imported phases (match by id-derived ref or name), keeping any existing phases not listed. */
-    private Map<String, Long> reconcilePhases(List<ImportPhaseNode> phases, Long workflowId) {
-        Map<String, Long> refToId = new LinkedHashMap<>();
-        List<WorkflowPhase> existing = phaseRepository.findByWorkflowIdOrderByOrderIndexAsc(workflowId);
-        Map<Long, WorkflowPhase> byId = existing.stream()
-                .collect(Collectors.toMap(WorkflowPhase::getId, Function.identity()));
-        Map<String, WorkflowPhase> byName = existing.stream()
-                .collect(Collectors.toMap(p -> p.getName().toLowerCase(), Function.identity(), (a, b) -> a));
-        int order = 0;
-        for (ImportPhaseNode node : phases) {
-            if (node.name() == null || node.name().isBlank()) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Every phase needs a name");
-            }
-            String phaseName = node.name().trim();
-            String ref = node.ref() == null ? null : node.ref().trim();
-            WorkflowPhase phase = null;
-            if (ref != null) {
-                Long pid = parseIdRef(ref, 'p');
-                if (pid != null) {
-                    phase = byId.get(pid);
-                }
-            }
-            if (phase == null) {
-                phase = byName.get(phaseName.toLowerCase());
-            }
-            if (phase == null) {
-                phase = new WorkflowPhase();
-                phase.setWorkflowId(workflowId);
-            }
-            phase.setName(phaseName);
-            phase.setColor(node.color());
-            phase.setDescription(node.description());
-            phase.setOrderIndex(node.orderIndex() != null ? node.orderIndex() : order);
-            phaseRepository.save(phase);
-            if (ref != null && !ref.isEmpty()) {
-                refToId.put(ref, phase.getId());
-            }
-            refToId.putIfAbsent(phaseName, phase.getId());
-            order++;
-        }
-        return refToId;
-    }
-
-    /** Resolves a role by name (case-insensitive), auto-creating it when missing. */
-    private Long resolveRole(String roleName, Map<String, BusinessRole> cache) {
-        if (roleName == null || roleName.isBlank()) {
-            return null;
-        }
-        String key = roleName.trim().toLowerCase();
-        BusinessRole role = cache.computeIfAbsent(key, k ->
-                roleRepository.findFirstByNameIgnoreCase(roleName.trim()).orElseGet(() -> {
-                    BusinessRole created = new BusinessRole();
-                    created.setName(roleName.trim());
-                    return roleRepository.save(created);
-                }));
-        return role.getId();
-    }
-
-    /** Merges the legacy singular {@code role} with the {@code roles} list, resolving each by name (deduped, order-preserving). */
-    private List<Long> resolveRoles(List<String> names, String single, Map<String, BusinessRole> cache) {
-        LinkedHashSet<Long> ids = new LinkedHashSet<>();
-        Long fromSingle = resolveRole(single, cache);
-        if (fromSingle != null) {
-            ids.add(fromSingle);
-        }
-        if (names != null) {
-            for (String name : names) {
-                Long id = resolveRole(name, cache);
-                if (id != null) {
-                    ids.add(id);
-                }
-            }
-        }
-        return new ArrayList<>(ids);
     }
 
     @Transactional
@@ -647,12 +170,12 @@ public class WorkflowService {
         workflowRepository.save(newest);
     }
 
-    private Workflow requireWorkflow(Long id) {
+    Workflow requireWorkflow(Long id) {
         return workflowRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Workflow not found"));
     }
 
-    private WorkflowDto toWorkflowDto(Workflow w) {
+    WorkflowDto toWorkflowDto(Workflow w) {
         List<String> tags = w.getTags().stream()
                 .sorted(String.CASE_INSENSITIVE_ORDER)
                 .toList();
@@ -663,7 +186,7 @@ public class WorkflowService {
                 stepRepository.countByWorkflowId(w.getId()), tags);
     }
 
-    private WorkflowStatus parseStatus(String value) {
+    WorkflowStatus parseStatus(String value) {
         try {
             return WorkflowStatus.valueOf(value.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
@@ -687,7 +210,7 @@ public class WorkflowService {
     // ---------------- Tags ----------------
 
     /** Trims, drops blanks and de-duplicates (case-insensitive, first spelling wins) free-text tags. */
-    private List<String> cleanTags(List<String> tags) {
+    List<String> cleanTags(List<String> tags) {
         List<String> result = new ArrayList<>();
         if (tags == null) {
             return result;

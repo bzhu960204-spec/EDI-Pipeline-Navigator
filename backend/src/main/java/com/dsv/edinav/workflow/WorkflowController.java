@@ -26,9 +26,12 @@ import java.util.List;
 public class WorkflowController {
 
     private final WorkflowService workflowService;
+    private final WorkflowImportExportService importExportService;
 
-    public WorkflowController(WorkflowService workflowService) {
+    public WorkflowController(WorkflowService workflowService,
+                              WorkflowImportExportService importExportService) {
         this.workflowService = workflowService;
+        this.importExportService = importExportService;
     }
 
     // ----- Workflow containers (versioned workflows) -----
@@ -62,20 +65,20 @@ public class WorkflowController {
     @PostMapping("/workflows/import")
     @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto importWorkflow(@Valid @RequestBody ImportWorkflowRequest request) {
-        return workflowService.importWorkflow(request);
+        return importExportService.importWorkflow(request);
     }
 
     @GetMapping("/workflows/{id}/export")
     public ImportWorkflowRequest exportWorkflow(@PathVariable Long id,
                                                 @RequestParam(defaultValue = "false") boolean includePhases) {
-        return workflowService.exportWorkflow(id, includePhases);
+        return importExportService.exportWorkflow(id, includePhases);
     }
 
     @PutMapping("/workflows/{id}/import")
     @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto updateWorkflowFromImport(@PathVariable Long id,
                                                 @Valid @RequestBody ImportWorkflowRequest request) {
-        return workflowService.updateWorkflowFromImport(id, request);
+        return importExportService.updateWorkflowFromImport(id, request);
     }
 
     @PutMapping("/workflows/{id}")
@@ -87,7 +90,7 @@ public class WorkflowController {
     @PostMapping("/workflows/{id}/versions")
     @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto createVersion(@PathVariable Long id, @Valid @RequestBody CreateVersionRequest request) {
-        return workflowService.createVersion(id, request);
+        return importExportService.createVersion(id, request);
     }
 
     @PutMapping("/workflows/{id}/version-label")

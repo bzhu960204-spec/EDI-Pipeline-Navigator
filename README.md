@@ -59,6 +59,25 @@ New sign-ups via the Register page are created as `USER`.
 ## Configuration
 See `backend/src/main/resources/application.yml`. In production, set `EDINAV_JWT_SECRET`.
 
+## Tests
+Backend tests use JUnit 5 + Spring Boot Test on a throwaway in-memory H2 database, so they
+never touch the dev file DB (`./data/edinav`).
+
+```powershell
+$env:JAVA_HOME="C:\Users\ANGUTANG\jdk-17.0.19+10"
+cd backend
+mvn.cmd test                          # all tests
+mvn.cmd "-Dtest=WorkflowServiceTest" test   # just the workflow safety net
+```
+
+- `WorkflowServiceTest` (`@DataJpaTest` + real H2) — the workflow import/export/versioning safety net:
+  duplicate-name rejection, import→export round-trip, tree nesting (roles/phase/transitions),
+  `createVersion` deep copy, `setCurrent` flag move, and update-from-import step-id preservation.
+- `ApplicationContextTest` (`@SpringBootTest`) — boots the full context to catch missing or
+  circular beans across the split workflow services/controllers.
+
+Frontend has no unit tests yet; type-check with `npm.cmd run build` (`tsc --noEmit && vite build`).
+
 ## Roadmap
 - **M1 — Foundation + Auth** ✅ (JWT auth, roles, theming, app shell)
 - **M2 — Procedure Orchestrator** ✅ (global workflow tree, sub-steps, business roles,
