@@ -1,7 +1,5 @@
-import { App as AntApp, Button, ColorPicker, Form, Input, InputNumber, List, Popconfirm, Space, Tag } from 'antd';
+import { Button, ColorPicker, Form, Input, InputNumber, List, Popconfirm, Space, Tag } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
 import {
   createPhase,
   deletePhase,
@@ -9,9 +7,7 @@ import {
   type WorkflowPhase,
   type WorkflowPhasePayload,
 } from '../../api/workflow';
-import { extractErrorMessage } from '../../api/client';
-
-type ColorLike = { toHexString: () => string };
+import { normalizeColor, useCrudManager } from './useCrudManager';
 
 interface PhaseManagerPanelProps {
   workflowId: number;
@@ -27,36 +23,16 @@ interface PhaseFormValues {
 }
 
 export function PhaseManagerPanel({ workflowId, phases, editable = true }: Readonly<PhaseManagerPanelProps>) {
-  const { message } = AntApp.useApp();
-  const queryClient = useQueryClient();
   const [form] = Form.useForm<PhaseFormValues>();
-  const [editingId, setEditingId] = useState<number | null>(null);
-
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['phases', workflowId] });
-    queryClient.invalidateQueries({ queryKey: ['workflow', workflowId] });
-  };
-
-  const saveMutation = useMutation({
-    mutationFn: (payload: WorkflowPhasePayload) =>
-      editingId ? updatePhase(editingId, payload) : createPhase(workflowId, payload),
-    onSuccess: () => {
-      message.success(editingId ? 'Phase updated' : 'Phase created');
-      form.resetFields();
-      setEditingId(null);
-      invalidate();
-    },
-    onError: (e) => message.error(extractErrorMessage(e, 'Failed to save phase')),
-  });
-
-  const removeMutation = useMutation({
-    mutationFn: (id: number) => deletePhase(id),
-    onSuccess: () => {
-      message.success('Phase deleted');
-      invalidate();
-    },
-    onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete phase')),
-  });
+  const { editingId, setEditingId, save: saveMutation, remove: removeMutation } =
+    useCrudManager<WorkflowPhasePayload>({
+      label: 'Phase',
+      create: (payload) => createPhase(workflowId, payload),
+      update: updatePhase,
+      remove: deletePhase,
+      invalidateKeys: [['phases', workflowId], ['workflow', workflowId]],
+      onSaved: () => form.resetFields(),
+    });
 
   const startEdit = (phase: WorkflowPhase) => {
     setEditingId(phase.id);
@@ -66,11 +42,6 @@ export function PhaseManagerPanel({ workflowId, phases, editable = true }: Reado
       orderIndex: phase.orderIndex,
       description: phase.description ?? '',
     });
-  };
-
-  const normalizeColor = (value: string | ColorLike | undefined): string | undefined => {
-    if (!value) return undefined;
-    return typeof value === 'string' ? value : value.toHexString();
   };
 
   return (

@@ -1,7 +1,5 @@
-import { App as AntApp, Button, Card, Form, Input, List, Popconfirm, Tag } from 'antd';
+import { Button, Card, Form, Input, List, Popconfirm, Tag } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
 import {
   createFolder,
   deleteFolder,
@@ -9,8 +7,8 @@ import {
   type WorkflowFolder,
   type WorkflowFolderPayload,
 } from '../../api/workflow';
-import { extractErrorMessage } from '../../api/client';
 import { colorForTag } from './tagColor';
+import { useCrudManager } from './useCrudManager';
 
 interface FolderManagerPanelProps {
   folders: WorkflowFolder[];
@@ -24,36 +22,16 @@ interface FolderFormValues {
 }
 
 export function FolderManagerPanel({ folders, editable = true }: Readonly<FolderManagerPanelProps>) {
-  const { message } = AntApp.useApp();
-  const queryClient = useQueryClient();
   const [form] = Form.useForm<FolderFormValues>();
-  const [editingId, setEditingId] = useState<number | null>(null);
-
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['folders'] });
-    queryClient.invalidateQueries({ queryKey: ['workflows'] });
-  };
-
-  const saveMutation = useMutation({
-    mutationFn: (payload: WorkflowFolderPayload) =>
-      editingId ? updateFolder(editingId, payload) : createFolder(payload),
-    onSuccess: () => {
-      message.success(editingId ? 'Folder updated' : 'Folder created');
-      form.resetFields();
-      setEditingId(null);
-      invalidate();
-    },
-    onError: (e) => message.error(extractErrorMessage(e, 'Failed to save folder')),
-  });
-
-  const removeMutation = useMutation({
-    mutationFn: (id: number) => deleteFolder(id),
-    onSuccess: () => {
-      message.success('Folder deleted');
-      invalidate();
-    },
-    onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete folder')),
-  });
+  const { editingId, setEditingId, save: saveMutation, remove: removeMutation } =
+    useCrudManager<WorkflowFolderPayload>({
+      label: 'Folder',
+      create: createFolder,
+      update: updateFolder,
+      remove: deleteFolder,
+      invalidateKeys: [['folders'], ['workflows']],
+      onSaved: () => form.resetFields(),
+    });
 
   const startEdit = (folder: WorkflowFolder) => {
     setEditingId(folder.id);

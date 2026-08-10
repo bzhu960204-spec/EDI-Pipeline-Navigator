@@ -3,7 +3,6 @@ package com.dsv.edinav.workflow;
 import com.dsv.edinav.common.ApiException;
 import com.dsv.edinav.artifact.ArtifactRepository;
 import com.dsv.edinav.workflow.dto.BusinessRoleDto;
-import com.dsv.edinav.workflow.dto.BusinessRoleRequest;
 import com.dsv.edinav.workflow.dto.CreateStepRequest;
 import com.dsv.edinav.workflow.dto.CreateTransitionRequest;
 import com.dsv.edinav.workflow.dto.CreateVersionRequest;
@@ -14,10 +13,6 @@ import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
 import com.dsv.edinav.workflow.dto.TransitionDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
-import com.dsv.edinav.workflow.dto.WorkflowFolderDto;
-import com.dsv.edinav.workflow.dto.WorkflowFolderRequest;
-import com.dsv.edinav.workflow.dto.WorkflowPhaseDto;
-import com.dsv.edinav.workflow.dto.WorkflowPhaseRequest;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
 import org.springframework.http.HttpStatus;
@@ -676,102 +671,7 @@ public class WorkflowService {
         }
     }
 
-    // ---------------- Roles ----------------
-
-    @Transactional(readOnly = true)
-    public List<BusinessRoleDto> getRoles() {
-        return roleRepository.findAllByOrderByNameAsc().stream().map(this::toRoleDto).toList();
-    }
-
-    @Transactional
-    public BusinessRoleDto createRole(BusinessRoleRequest request) {
-        if (roleRepository.existsByNameIgnoreCase(request.name().trim())) {
-            throw new ApiException(HttpStatus.CONFLICT, "Role name already exists");
-        }
-        BusinessRole role = new BusinessRole();
-        role.setName(request.name().trim());
-        role.setColor(request.color());
-        role.setDescription(request.description());
-        return toRoleDto(roleRepository.save(role));
-    }
-
-    @Transactional
-    public BusinessRoleDto updateRole(Long id, BusinessRoleRequest request) {
-        BusinessRole role = roleRepository.findById(id)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Role not found"));
-        role.setName(request.name().trim());
-        role.setColor(request.color());
-        role.setDescription(request.description());
-        return toRoleDto(roleRepository.save(role));
-    }
-
-    @Transactional
-    public void deleteRole(Long id) {
-        if (!roleRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Role not found");
-        }
-        // Detach the role from any steps that reference it, then delete.
-        stepRepository.findByBusinessRoleIdOrderByOrderIndexAsc(id).forEach(step -> {
-            step.getBusinessRoleIds().remove(id);
-            stepRepository.save(step);
-        });
-        roleRepository.deleteById(id);
-    }
-
     // ---------------- Folders ----------------
-
-    @Transactional(readOnly = true)
-    public List<WorkflowFolderDto> getFolders() {
-        return folderRepository.findAllByOrderByOrderIndexAscNameAsc().stream().map(this::toFolderDto).toList();
-    }
-
-    @Transactional
-    public WorkflowFolderDto createFolder(WorkflowFolderRequest request) {
-        if (folderRepository.existsByNameIgnoreCase(request.name().trim())) {
-            throw new ApiException(HttpStatus.CONFLICT, "Folder name already exists");
-        }
-        WorkflowFolder folder = new WorkflowFolder();
-        folder.setName(request.name().trim());
-        folder.setColor(request.color());
-        folder.setDescription(request.description());
-        folder.setOrderIndex(request.orderIndex() == null ? (int) folderRepository.count() : request.orderIndex());
-        return toFolderDto(folderRepository.save(folder));
-    }
-
-    @Transactional
-    public WorkflowFolderDto updateFolder(Long id, WorkflowFolderRequest request) {
-        WorkflowFolder folder = folderRepository.findById(id)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Folder not found"));
-        if (folderRepository.existsByNameIgnoreCaseAndIdNot(request.name().trim(), id)) {
-            throw new ApiException(HttpStatus.CONFLICT, "Folder name already exists");
-        }
-        folder.setName(request.name().trim());
-        folder.setColor(request.color());
-        folder.setDescription(request.description());
-        if (request.orderIndex() != null) {
-            folder.setOrderIndex(request.orderIndex());
-        }
-        return toFolderDto(folderRepository.save(folder));
-    }
-
-    @Transactional
-    public void deleteFolder(Long id) {
-        if (!folderRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Folder not found");
-        }
-        // Detach the folder from any workflow that references it, then delete (workflows are kept).
-        workflowRepository.findAll().forEach(w -> {
-            if (id.equals(w.getFolderId())) {
-                w.setFolderId(null);
-                workflowRepository.save(w);
-            }
-        });
-        folderRepository.deleteById(id);
-    }
-
-    private WorkflowFolderDto toFolderDto(WorkflowFolder f) {
-        return new WorkflowFolderDto(f.getId(), f.getName(), f.getColor(), f.getDescription(), f.getOrderIndex());
-    }
 
     /** Validates that the folder exists (when provided) and returns the id unchanged (null = ungrouped). */
     private Long resolveFolderId(Long folderId) {
@@ -824,7 +724,7 @@ public class WorkflowService {
                 .filter(t -> stepIds.contains(t.getFromStepId()))
                 .collect(Collectors.groupingBy(WorkflowTransition::getFromStepId));
 
-        return buildChildren(0L, byParent, byFrom, roles, phases, stepNames);
+        return WorkflowStepAssembler.buildChildren(0L, byParent, byFrom, roles, phases, stepNames);
     }
 
     /** Flat forest of every step across all current-version workflows; used by dashboards and pickers. */
@@ -845,47 +745,7 @@ public class WorkflowService {
                 .collect(Collectors.toMap(WorkflowStep::getId, WorkflowStep::getName));
         Map<Long, List<WorkflowTransition>> byFrom = transitionRepository.findAll().stream()
                 .collect(Collectors.groupingBy(WorkflowTransition::getFromStepId));
-        return buildChildren(0L, byParent, byFrom, roles, phases, stepNames);
-    }
-
-    private List<WorkflowStepDto> buildChildren(Long parentKey,
-                                                Map<Long, List<WorkflowStep>> byParent,
-                                                Map<Long, List<WorkflowTransition>> byFrom,
-                                                Map<Long, BusinessRole> roles,
-                                                Map<Long, WorkflowPhase> phases,
-                                                Map<Long, String> stepNames) {
-        List<WorkflowStep> children = byParent.getOrDefault(parentKey, List.of()).stream()
-                .sorted(Comparator.comparingInt(WorkflowStep::getOrderIndex))
-                .toList();
-        List<WorkflowStepDto> result = new ArrayList<>();
-        for (WorkflowStep step : children) {
-            result.add(toStepDto(step, byParent, byFrom, roles, phases, stepNames));
-        }
-        return result;
-    }
-
-    private WorkflowStepDto toStepDto(WorkflowStep step,
-                                      Map<Long, List<WorkflowStep>> byParent,
-                                      Map<Long, List<WorkflowTransition>> byFrom,
-                                      Map<Long, BusinessRole> roles,
-                                      Map<Long, WorkflowPhase> phases,
-                                      Map<Long, String> stepNames) {
-        List<WorkflowStepDto> children = buildChildren(step.getId(), byParent, byFrom, roles, phases, stepNames);
-        List<TransitionDto> transitions = byFrom.getOrDefault(step.getId(), List.of()).stream()
-                .sorted(Comparator.comparingInt(WorkflowTransition::getOrderIndex))
-                .map(t -> new TransitionDto(t.getId(), t.getFromStepId(), t.getToStepId(),
-                        stepNames.get(t.getToStepId()), t.getLabel(), t.getOrderIndex()))
-                .toList();
-        List<BusinessRoleDto> roleDtos = step.getBusinessRoleIds().stream()
-                .map(roles::get)
-                .filter(Objects::nonNull)
-                .map(this::toRoleDto)
-                .toList();
-        WorkflowPhase phase = step.getPhaseId() == null ? null : phases.get(step.getPhaseId());
-        return new WorkflowStepDto(step.getId(), step.getWorkflowId(), step.getParentId(), step.getOrderIndex(),
-                step.getName(), step.getDescription(), step.getNotes(), step.getLineageKey(),
-                roleDtos,
-                phase == null ? null : toPhaseDto(phase), children, transitions);
+        return WorkflowStepAssembler.buildChildren(0L, byParent, byFrom, roles, phases, stepNames);
     }
 
     // ---------------- Steps ----------------
@@ -1011,12 +871,12 @@ public class WorkflowService {
                     List<BusinessRoleDto> roleDtos = step.getBusinessRoleIds().stream()
                             .map(roles::get)
                             .filter(Objects::nonNull)
-                            .map(this::toRoleDto)
+                            .map(WorkflowMapper::toRoleDto)
                             .toList();
                     WorkflowPhase phase = step.getPhaseId() == null ? null : phases.get(step.getPhaseId());
                     return new WorkflowStepDto(step.getId(), step.getWorkflowId(), step.getParentId(), step.getOrderIndex(),
                             step.getName(), step.getDescription(), step.getNotes(), step.getLineageKey(), roleDtos,
-                            phase == null ? null : toPhaseDto(phase), List.of(), List.of());
+                            phase == null ? null : WorkflowMapper.toPhaseDto(phase), List.of(), List.of());
                 })
                 .toList();
     }
@@ -1036,7 +896,7 @@ public class WorkflowService {
                 .collect(Collectors.toMap(WorkflowStep::getId, WorkflowStep::getName));
         Map<Long, List<WorkflowTransition>> byFrom = transitionRepository.findAll().stream()
                 .collect(Collectors.groupingBy(WorkflowTransition::getFromStepId));
-        return toStepDto(step, byParent, byFrom, roles, phases, stepNames);
+        return WorkflowStepAssembler.toStepDto(step, byParent, byFrom, roles, phases, stepNames);
     }
 
     private void validateRole(Long roleId) {
@@ -1077,65 +937,5 @@ public class WorkflowService {
         if (!phase.getWorkflowId().equals(workflowId)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Phase does not belong to the step's workflow");
         }
-    }
-
-    private BusinessRoleDto toRoleDto(BusinessRole role) {
-        return new BusinessRoleDto(role.getId(), role.getName(), role.getColor(), role.getDescription());
-    }
-
-    // ---------------- Phases ----------------
-
-    @Transactional(readOnly = true)
-    public List<WorkflowPhaseDto> getPhases(Long workflowId) {
-        requireWorkflow(workflowId);
-        return phaseRepository.findByWorkflowIdOrderByOrderIndexAsc(workflowId).stream()
-                .map(this::toPhaseDto).toList();
-    }
-
-    @Transactional
-    public WorkflowPhaseDto createPhase(Long workflowId, WorkflowPhaseRequest request) {
-        requireWorkflow(workflowId);
-        if (phaseRepository.existsByWorkflowIdAndNameIgnoreCase(workflowId, request.name().trim())) {
-            throw new ApiException(HttpStatus.CONFLICT, "Phase name already exists in this workflow");
-        }
-        WorkflowPhase phase = new WorkflowPhase();
-        phase.setWorkflowId(workflowId);
-        phase.setName(request.name().trim());
-        phase.setColor(request.color());
-        phase.setDescription(request.description());
-        phase.setOrderIndex(request.orderIndex() != null ? request.orderIndex()
-                : phaseRepository.nextOrderIndex(workflowId));
-        return toPhaseDto(phaseRepository.save(phase));
-    }
-
-    @Transactional
-    public WorkflowPhaseDto updatePhase(Long id, WorkflowPhaseRequest request) {
-        WorkflowPhase phase = phaseRepository.findById(id)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Phase not found"));
-        phase.setName(request.name().trim());
-        phase.setColor(request.color());
-        phase.setDescription(request.description());
-        if (request.orderIndex() != null) {
-            phase.setOrderIndex(request.orderIndex());
-        }
-        return toPhaseDto(phaseRepository.save(phase));
-    }
-
-    @Transactional
-    public void deletePhase(Long id) {
-        if (!phaseRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Phase not found");
-        }
-        // Detach the phase from any steps that reference it, then delete (never cascade-delete steps).
-        stepRepository.findByPhaseIdOrderByOrderIndexAsc(id).forEach(step -> {
-            step.setPhaseId(null);
-            stepRepository.save(step);
-        });
-        phaseRepository.deleteById(id);
-    }
-
-    private WorkflowPhaseDto toPhaseDto(WorkflowPhase phase) {
-        return new WorkflowPhaseDto(phase.getId(), phase.getWorkflowId(), phase.getName(),
-                phase.getColor(), phase.getOrderIndex(), phase.getDescription());
     }
 }

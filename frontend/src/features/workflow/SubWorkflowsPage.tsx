@@ -35,8 +35,6 @@ import {
   DragOverlay,
   PointerSensor,
   pointerWithin,
-  useDraggable,
-  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -58,6 +56,7 @@ import { extractErrorMessage } from '../../api/client';
 import { isAdmin, useAuthStore } from '../auth/authStore';
 import { FolderManagerPanel } from './FolderManagerPanel';
 import { colorForTag } from './tagColor';
+import { DropZone, dragRowComponents } from './workflowDnd';
 
 type LibraryView = 'table' | 'groups';
 const VIEW_STORAGE_KEY = 'edinav-workflow-view';
@@ -75,43 +74,6 @@ interface FormValues {
 function statusColor(status: WorkflowStatus) {
   return status === 'PUBLISHED' ? 'green' : 'default';
 }
-
-// Row rendered inside group tables; whole row is a pointer-drag source (no cursor change).
-function DraggableBodyRow(props: Readonly<Record<string, unknown>>) {
-  const rowKey = props['data-row-key'] as number | undefined;
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `wf-${rowKey}`,
-    data: { workflowId: rowKey },
-    disabled: rowKey == null,
-  });
-  const style = { ...(props.style as object), opacity: isDragging ? 0.4 : 1, touchAction: 'none' };
-  return <tr {...props} {...attributes} {...listeners} ref={setNodeRef} style={style} />;
-}
-
-const dragRowComponents = { body: { row: DraggableBodyRow } };
-
-// A folder (or Ungrouped) drop target; highlights while a row hovers over it.
-function DropZone({
-  id,
-  folderId,
-  children,
-}: Readonly<{ id: string; folderId: number | null; children: ReactNode }>) {
-  const { setNodeRef, isOver } = useDroppable({ id, data: { folderId } });
-  return (
-    <div
-      ref={setNodeRef}
-      style={{
-        borderRadius: 6,
-        outline: isOver ? '2px dashed #1677ff' : '2px dashed transparent',
-        background: isOver ? 'rgba(22,119,255,0.06)' : undefined,
-        transition: 'outline-color 0.15s, background 0.15s',
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
 
 export function SubWorkflowsPage() {
   const { message } = AntApp.useApp();

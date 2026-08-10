@@ -1,7 +1,5 @@
-import { App as AntApp, Button, Card, ColorPicker, Form, Input, List, Popconfirm, Space, Tag } from 'antd';
+import { Button, Card, ColorPicker, Form, Input, List, Popconfirm, Space, Tag } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
 import {
   createRole,
   deleteRole,
@@ -9,10 +7,7 @@ import {
   type BusinessRole,
   type BusinessRolePayload,
 } from '../../api/workflow';
-import { extractErrorMessage } from '../../api/client';
-
-/** Minimal shape of AntD ColorPicker's value that we rely on. */
-type ColorLike = { toHexString: () => string };
+import { normalizeColor, useCrudManager } from './useCrudManager';
 
 interface RoleManagerPanelProps {
   roles: BusinessRole[];
@@ -21,36 +16,16 @@ interface RoleManagerPanelProps {
 }
 
 export function RoleManagerPanel({ roles, editable = true }: Readonly<RoleManagerPanelProps>) {
-  const { message } = AntApp.useApp();
-  const queryClient = useQueryClient();
   const [form] = Form.useForm<{ name: string; color: string; description?: string }>();
-  const [editingId, setEditingId] = useState<number | null>(null);
-
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['workflow'] });
-    queryClient.invalidateQueries({ queryKey: ['roles'] });
-  };
-
-  const saveMutation = useMutation({
-    mutationFn: (payload: BusinessRolePayload) =>
-      editingId ? updateRole(editingId, payload) : createRole(payload),
-    onSuccess: () => {
-      message.success(editingId ? 'Role updated' : 'Role created');
-      form.resetFields();
-      setEditingId(null);
-      invalidate();
-    },
-    onError: (e) => message.error(extractErrorMessage(e, 'Failed to save role')),
-  });
-
-  const removeMutation = useMutation({
-    mutationFn: (id: number) => deleteRole(id),
-    onSuccess: () => {
-      message.success('Role deleted');
-      invalidate();
-    },
-    onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete role')),
-  });
+  const { editingId, setEditingId, save: saveMutation, remove: removeMutation } =
+    useCrudManager<BusinessRolePayload>({
+      label: 'Role',
+      create: createRole,
+      update: updateRole,
+      remove: deleteRole,
+      invalidateKeys: [['workflow'], ['roles']],
+      onSaved: () => form.resetFields(),
+    });
 
   const startEdit = (role: BusinessRole) => {
     setEditingId(role.id);
@@ -59,11 +34,6 @@ export function RoleManagerPanel({ roles, editable = true }: Readonly<RoleManage
       color: role.color ?? '#1677ff',
       description: role.description ?? '',
     });
-  };
-
-  const normalizeColor = (value: string | ColorLike | undefined): string | undefined => {
-    if (!value) return undefined;
-    return typeof value === 'string' ? value : value.toHexString();
   };
 
   return (

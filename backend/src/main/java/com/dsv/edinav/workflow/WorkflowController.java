@@ -1,18 +1,8 @@
 package com.dsv.edinav.workflow;
 
-import com.dsv.edinav.workflow.dto.BusinessRoleDto;
-import com.dsv.edinav.workflow.dto.BusinessRoleRequest;
-import com.dsv.edinav.workflow.dto.CreateStepRequest;
-import com.dsv.edinav.workflow.dto.CreateTransitionRequest;
 import com.dsv.edinav.workflow.dto.CreateVersionRequest;
 import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
-import com.dsv.edinav.workflow.dto.TransitionDto;
-import com.dsv.edinav.workflow.dto.UpdateStepRequest;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
-import com.dsv.edinav.workflow.dto.WorkflowFolderDto;
-import com.dsv.edinav.workflow.dto.WorkflowFolderRequest;
-import com.dsv.edinav.workflow.dto.WorkflowPhaseDto;
-import com.dsv.edinav.workflow.dto.WorkflowPhaseRequest;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
 import jakarta.validation.Valid;
@@ -61,11 +51,6 @@ public class WorkflowController {
     @GetMapping("/workflows/{id}/tree")
     public List<WorkflowStepDto> getWorkflowTree(@PathVariable Long id) {
         return workflowService.getTree(id);
-    }
-
-    @GetMapping("/steps")
-    public List<WorkflowStepDto> getAllSteps() {
-        return workflowService.getAllSteps();
     }
 
     @PostMapping("/workflows")
@@ -122,124 +107,5 @@ public class WorkflowController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteWorkflow(@PathVariable Long id) {
         workflowService.deleteWorkflow(id);
-    }
-
-    // ----- Steps (scoped to a workflow) -----
-
-    @PostMapping("/steps")
-    @PreAuthorize("hasRole('ADMIN')")
-    public WorkflowStepDto createStep(@Valid @RequestBody CreateStepRequest request) {
-        return workflowService.createStep(request);
-    }
-
-    @PutMapping("/steps/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public WorkflowStepDto updateStep(@PathVariable Long id, @Valid @RequestBody UpdateStepRequest request) {
-        return workflowService.updateStep(id, request);
-    }
-
-    @DeleteMapping("/steps/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteStep(@PathVariable Long id) {
-        workflowService.deleteStep(id);
-    }
-
-    // ----- Transitions / branching -----
-
-    @PostMapping("/transitions")
-    @PreAuthorize("hasRole('ADMIN')")
-    public TransitionDto createTransition(@Valid @RequestBody CreateTransitionRequest request) {
-        return workflowService.createTransition(request);
-    }
-
-    @DeleteMapping("/transitions/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteTransition(@PathVariable Long id) {
-        workflowService.deleteTransition(id);
-    }
-
-    // ----- Roles -----
-
-    @GetMapping("/roles")
-    public List<BusinessRoleDto> getRoles() {
-        return workflowService.getRoles();
-    }
-
-    @GetMapping("/roles/{id}/steps")
-    public List<WorkflowStepDto> getStepsByRole(@PathVariable Long id) {
-        return workflowService.getStepsByRole(id);
-    }
-
-    @PostMapping("/roles")
-    @PreAuthorize("hasRole('ADMIN')")
-    public BusinessRoleDto createRole(@Valid @RequestBody BusinessRoleRequest request) {
-        return workflowService.createRole(request);
-    }
-
-    @PutMapping("/roles/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public BusinessRoleDto updateRole(@PathVariable Long id, @Valid @RequestBody BusinessRoleRequest request) {
-        return workflowService.updateRole(id, request);
-    }
-
-    @DeleteMapping("/roles/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteRole(@PathVariable Long id) {
-        workflowService.deleteRole(id);
-    }
-
-    // ----- Phases (scoped to a workflow) -----
-
-    @GetMapping("/workflows/{id}/phases")
-    public List<WorkflowPhaseDto> getPhases(@PathVariable Long id) {
-        return workflowService.getPhases(id);
-    }
-
-    @PostMapping("/workflows/{id}/phases")
-    @PreAuthorize("hasRole('ADMIN')")
-    public WorkflowPhaseDto createPhase(@PathVariable Long id, @Valid @RequestBody WorkflowPhaseRequest request) {
-        return workflowService.createPhase(id, request);
-    }
-
-    @PutMapping("/phases/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public WorkflowPhaseDto updatePhase(@PathVariable Long id, @Valid @RequestBody WorkflowPhaseRequest request) {
-        return workflowService.updatePhase(id, request);
-    }
-
-    @DeleteMapping("/phases/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deletePhase(@PathVariable Long id) {
-        workflowService.deletePhase(id);
-    }
-
-    // ----- Folders -----
-
-    @GetMapping("/folders")
-    public List<WorkflowFolderDto> getFolders() {
-        return workflowService.getFolders();
-    }
-
-    @PostMapping("/folders")
-    @PreAuthorize("hasRole('ADMIN')")
-    public WorkflowFolderDto createFolder(@Valid @RequestBody WorkflowFolderRequest request) {
-        return workflowService.createFolder(request);
-    }
-
-    @PutMapping("/folders/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public WorkflowFolderDto updateFolder(@PathVariable Long id, @Valid @RequestBody WorkflowFolderRequest request) {
-        return workflowService.updateFolder(id, request);
-    }
-
-    @DeleteMapping("/folders/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteFolder(@PathVariable Long id) {
-        workflowService.deleteFolder(id);
     }
 }
