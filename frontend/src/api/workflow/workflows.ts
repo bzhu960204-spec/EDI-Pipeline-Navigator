@@ -35,6 +35,11 @@ export async function updateVersionLabel(id: number, label?: string): Promise<Wo
   return data;
 }
 
+export async function setWorkflowConfidence(id: number, confidence: number): Promise<Workflow> {
+  const { data } = await api.put<Workflow>(`/workflow/workflows/${id}/confidence`, { confidence });
+  return data;
+}
+
 export async function createWorkflow(payload: WorkflowPayload): Promise<Workflow> {
   const { data } = await api.post<Workflow>('/workflow/workflows', payload);
   return data;
@@ -45,9 +50,13 @@ export async function importWorkflow(payload: ImportWorkflowPayload): Promise<Wo
   return data;
 }
 
-export async function exportWorkflow(id: number, includePhases: boolean): Promise<ImportWorkflowPayload> {
+export async function exportWorkflow(
+  id: number,
+  includePhases: boolean,
+  includeReviews: boolean,
+): Promise<ImportWorkflowPayload> {
   const { data } = await api.get<ImportWorkflowPayload>(`/workflow/workflows/${id}/export`, {
-    params: { includePhases },
+    params: { includePhases, includeReviews },
   });
   return data;
 }

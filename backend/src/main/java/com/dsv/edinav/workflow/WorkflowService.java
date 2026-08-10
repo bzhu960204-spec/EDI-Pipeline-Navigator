@@ -5,6 +5,8 @@ import com.dsv.edinav.artifact.ArtifactRepository;
 import com.dsv.edinav.workflow.dto.BusinessRoleDto;
 import com.dsv.edinav.workflow.dto.CreateStepRequest;
 import com.dsv.edinav.workflow.dto.CreateTransitionRequest;
+import com.dsv.edinav.workflow.dto.ReviewRequest;
+import com.dsv.edinav.workflow.dto.StepReviewDto;
 import com.dsv.edinav.workflow.dto.TransitionDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
@@ -16,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -36,6 +39,7 @@ public class WorkflowService {
     private final WorkflowPhaseRepository phaseRepository;
     private final WorkflowFolderRepository folderRepository;
     private final ArtifactRepository artifactRepository;
+    private final StepReviewRepository reviewRepository;
 
     public WorkflowService(WorkflowRepository workflowRepository,
                            WorkflowStepRepository stepRepository,
@@ -43,7 +47,8 @@ public class WorkflowService {
                            BusinessRoleRepository roleRepository,
                            WorkflowPhaseRepository phaseRepository,
                            WorkflowFolderRepository folderRepository,
-                           ArtifactRepository artifactRepository) {
+                           ArtifactRepository artifactRepository,
+                           StepReviewRepository reviewRepository) {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
         this.transitionRepository = transitionRepository;
@@ -51,6 +56,7 @@ public class WorkflowService {
         this.phaseRepository = phaseRepository;
         this.folderRepository = folderRepository;
         this.artifactRepository = artifactRepository;
+        this.reviewRepository = reviewRepository;
     }
 
     // ---------------- Workflows (containers) ----------------
@@ -153,6 +159,7 @@ public class WorkflowService {
         transitionRepository.findAll().stream()
                 .filter(t -> stepIds.contains(t.getFromStepId()) || stepIds.contains(t.getToStepId()))
                 .forEach(transitionRepository::delete);
+        deleteReviewsFor(stepIds);
         phaseRepository.deleteAll(phaseRepository.findByWorkflowIdOrderByOrderIndexAsc(id));
         stepRepository.deleteAll(steps);
         workflowRepository.deleteById(id);
@@ -183,7 +190,7 @@ public class WorkflowService {
                 w.getStatus().name(), w.getGroupId(), w.getVersion(),
                 w.getVersionLabel(), w.isCurrent(), w.getOrderIndex(),
                 w.getFolderId(),
-                stepRepository.countByWorkflowId(w.getId()), tags);
+                stepRepository.countByWorkflowId(w.getId()), w.getConfidence(), tags);
     }
 
     WorkflowStatus parseStatus(String value) {
@@ -192,6 +199,25 @@ public class WorkflowService {
         } catch (IllegalArgumentException e) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid workflow status: " + value);
         }
+    }
+
+    /** Sets the manual trust rating (0-5) of a single version. */
+    @Transactional
+    public WorkflowDto setConfidence(Long id, Integer confidence) {
+        if (confidence == null || confidence < 0 || confidence > 5) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Confidence must be between 0 and 5");
+        }
+        Workflow workflow = requireWorkflow(id);
+        workflow.setConfidence(confidence);
+        return toWorkflowDto(workflowRepository.save(workflow));
+    }
+
+    /** Clamps an optional imported confidence to 0-5, treating null/out-of-range as 0. */
+    static int clampConfidence(Integer confidence) {
+        if (confidence == null || confidence < 0 || confidence > 5) {
+            return 0;
+        }
+        return confidence;
     }
 
     // ---------------- Folders ----------------
@@ -247,7 +273,8 @@ public class WorkflowService {
                 .filter(t -> stepIds.contains(t.getFromStepId()))
                 .collect(Collectors.groupingBy(WorkflowTransition::getFromStepId));
 
-        return WorkflowStepAssembler.buildChildren(0L, byParent, byFrom, roles, phases, stepNames);
+        return WorkflowStepAssembler.buildChildren(0L, byParent, byFrom, roles, phases,
+                loadReviews(stepIds), stepNames);
     }
 
     /** Flat forest of every step across all current-version workflows; used by dashboards and pickers. */
@@ -268,7 +295,8 @@ public class WorkflowService {
                 .collect(Collectors.toMap(WorkflowStep::getId, WorkflowStep::getName));
         Map<Long, List<WorkflowTransition>> byFrom = transitionRepository.findAll().stream()
                 .collect(Collectors.groupingBy(WorkflowTransition::getFromStepId));
-        return WorkflowStepAssembler.buildChildren(0L, byParent, byFrom, roles, phases, stepNames);
+        return WorkflowStepAssembler.buildChildren(0L, byParent, byFrom, roles, phases,
+                loadReviews(stepNames.keySet()), stepNames);
     }
 
     // ---------------- Steps ----------------
@@ -326,6 +354,7 @@ public class WorkflowService {
         transitionRepository.findAll().stream()
                 .filter(t -> toDelete.contains(t.getFromStepId()) || toDelete.contains(t.getToStepId()))
                 .forEach(transitionRepository::delete);
+        deleteReviewsFor(toDelete);
         stepRepository.deleteAllById(toDelete);
     }
 
@@ -340,6 +369,52 @@ public class WorkflowService {
                     .forEach(child -> queue.add(child.getId()));
         }
         return ids;
+    }
+
+    // ---------------- Reviews ----------------
+
+    @Transactional
+    public StepReviewDto addReview(Long stepId, ReviewRequest request) {
+        if (!stepRepository.existsById(stepId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Step not found");
+        }
+        StepReview review = new StepReview();
+        review.setStepId(stepId);
+        review.setContent(request.content().trim());
+        reviewRepository.save(review);
+        return WorkflowMapper.toReviewDto(review);
+    }
+
+    @Transactional
+    public StepReviewDto updateReview(Long reviewId, ReviewRequest request) {
+        StepReview review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Review not found"));
+        review.setContent(request.content().trim());
+        reviewRepository.save(review);
+        return WorkflowMapper.toReviewDto(review);
+    }
+
+    @Transactional
+    public void deleteReview(Long reviewId) {
+        if (!reviewRepository.existsById(reviewId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Review not found");
+        }
+        reviewRepository.deleteById(reviewId);
+    }
+
+    private Map<Long, List<StepReviewDto>> loadReviews(Collection<Long> stepIds) {
+        if (stepIds.isEmpty()) {
+            return Map.of();
+        }
+        return reviewRepository.findByStepIdInOrderByCreatedAtDescIdDesc(stepIds).stream()
+                .map(WorkflowMapper::toReviewDto)
+                .collect(Collectors.groupingBy(StepReviewDto::stepId));
+    }
+
+    private void deleteReviewsFor(Collection<Long> stepIds) {
+        if (!stepIds.isEmpty()) {
+            reviewRepository.deleteByStepIdIn(stepIds);
+        }
     }
 
     // ---------------- Transitions (branching) ----------------
@@ -399,7 +474,7 @@ public class WorkflowService {
                     WorkflowPhase phase = step.getPhaseId() == null ? null : phases.get(step.getPhaseId());
                     return new WorkflowStepDto(step.getId(), step.getWorkflowId(), step.getParentId(), step.getOrderIndex(),
                             step.getName(), step.getDescription(), step.getNotes(), step.getLineageKey(), roleDtos,
-                            phase == null ? null : WorkflowMapper.toPhaseDto(phase), List.of(), List.of());
+                            phase == null ? null : WorkflowMapper.toPhaseDto(phase), List.of(), List.of(), List.of());
                 })
                 .toList();
     }
@@ -419,7 +494,8 @@ public class WorkflowService {
                 .collect(Collectors.toMap(WorkflowStep::getId, WorkflowStep::getName));
         Map<Long, List<WorkflowTransition>> byFrom = transitionRepository.findAll().stream()
                 .collect(Collectors.groupingBy(WorkflowTransition::getFromStepId));
-        return WorkflowStepAssembler.toStepDto(step, byParent, byFrom, roles, phases, stepNames);
+        return WorkflowStepAssembler.toStepDto(step, byParent, byFrom, roles, phases,
+                loadReviews(List.of(step.getId())), stepNames);
     }
 
     private void validateRole(Long roleId) {

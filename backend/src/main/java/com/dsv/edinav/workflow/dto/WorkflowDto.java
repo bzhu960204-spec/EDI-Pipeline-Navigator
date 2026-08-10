@@ -14,5 +14,6 @@ public record WorkflowDto(
         int orderIndex,
         Long folderId,
         long stepCount,
+        int confidence,
         List<String> tags
 ) {}

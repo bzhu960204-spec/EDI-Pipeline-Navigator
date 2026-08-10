@@ -56,6 +56,10 @@ public class Workflow {
     @Column(nullable = false, columnDefinition = "boolean default true")
     private boolean isCurrent = true;
 
+    /** Manual trust rating for this version, 0 (unrated) to 5 (highest); AI-generated workflows start at 0. */
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    private Integer confidence = 0;
+
     @Column(nullable = false)
     private int orderIndex;
 
@@ -94,6 +98,9 @@ public class Workflow {
 
     public boolean isCurrent() { return isCurrent; }
     public void setCurrent(boolean current) { this.isCurrent = current; }
+
+    public Integer getConfidence() { return confidence == null ? 0 : confidence; }
+    public void setConfidence(Integer confidence) { this.confidence = confidence == null ? 0 : confidence; }
 
     public int getOrderIndex() { return orderIndex; }
     public void setOrderIndex(int orderIndex) { this.orderIndex = orderIndex; }

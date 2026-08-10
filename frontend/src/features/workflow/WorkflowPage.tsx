@@ -5,8 +5,10 @@ import { ApartmentOutlined, ArrowLeftOutlined, BranchesOutlined, CheckOutlined, 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
+  addReview,
   createStep,
   createTransition,
+  deleteReview,
   deleteStep,
   deleteTransition,
   exportWorkflow,
@@ -16,6 +18,7 @@ import {
   fetchWorkflow,
   fetchWorkflowTree,
   setCurrentVersion,
+  updateReview,
   updateStep,
   updateWorkflowFromImport,
   type ImportWorkflowPayload,
@@ -61,6 +64,7 @@ export function WorkflowPage() {
   const [treeGroup, setTreeGroup] = useState<TreeGrouping>('phase');
   const [exportOpen, setExportOpen] = useState(false);
   const [exportIncludePhases, setExportIncludePhases] = useState(false);
+  const [exportIncludeReviews, setExportIncludeReviews] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [updateText, setUpdateText] = useState('');
   const [versionsOpen, setVersionsOpen] = useState(false);
@@ -198,8 +202,36 @@ export function WorkflowPage() {
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to remove transition')),
   });
 
+  const addReviewM = useMutation({
+    mutationFn: ({ stepId, content }: { stepId: number; content: string }) => addReview(stepId, content),
+    onSuccess: () => {
+      message.success('Review added');
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to add review')),
+  });
+
+  const updateReviewM = useMutation({
+    mutationFn: ({ id, content }: { id: number; content: string }) => updateReview(id, content),
+    onSuccess: () => {
+      message.success('Review updated');
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to update review')),
+  });
+
+  const removeReviewM = useMutation({
+    mutationFn: (id: number) => deleteReview(id),
+    onSuccess: () => {
+      message.success('Review removed');
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to remove review')),
+  });
+
   const runExport = useMutation({
-    mutationFn: (includePhases: boolean) => exportWorkflow(workflowId, includePhases),
+    mutationFn: ({ includePhases, includeReviews }: { includePhases: boolean; includeReviews: boolean }) =>
+      exportWorkflow(workflowId, includePhases, includeReviews),
     onSuccess: (payload) => {
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -487,7 +519,7 @@ export function WorkflowPage() {
             {leftPanel}
           </Col>
           <Col xs={24} md={view === 'graph' ? 9 : 14} lg={view === 'graph' ? 8 : 15}>
-            <div style={{ position: 'sticky', top: 16, maxHeight: 'calc(100vh - 200px)', overflow: 'auto' }}>
+            <div style={{ position: 'sticky', top: 16 }}>
             <StepDetail
               step={selectedStep}
               isAdmin={admin}
@@ -501,6 +533,9 @@ export function WorkflowPage() {
               onDelete={() => selectedStep && removeStep.mutate(selectedStep.id)}
               onDeleteTransition={(t) => removeTransition.mutate(t)}
               onNavigate={navigateTo}
+              onAddReview={(content) => selectedStep && addReviewM.mutate({ stepId: selectedStep.id, content })}
+              onUpdateReview={(id, content) => updateReviewM.mutate({ id, content })}
+              onDeleteReview={(id) => removeReviewM.mutate(id)}
             />
             </div>
           </Col>
@@ -534,14 +569,17 @@ export function WorkflowPage() {
         okText="Download"
         confirmLoading={runExport.isPending}
         onCancel={() => setExportOpen(false)}
-        onOk={() => runExport.mutate(exportIncludePhases)}
+        onOk={() => runExport.mutate({ includePhases: exportIncludePhases, includeReviews: exportIncludeReviews })}
       >
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           <Typography.Text type="secondary">
-            Steps, roles and branching are always included. Phases are optional and off by default.
+            Steps, roles and branching are always included. Phases and reviews are optional and off by default.
           </Typography.Text>
           <Checkbox checked={exportIncludePhases} onChange={(e) => setExportIncludePhases(e.target.checked)}>
             Include phases
+          </Checkbox>
+          <Checkbox checked={exportIncludeReviews} onChange={(e) => setExportIncludeReviews(e.target.checked)}>
+            Include reviews
           </Checkbox>
         </Space>
       </Modal>

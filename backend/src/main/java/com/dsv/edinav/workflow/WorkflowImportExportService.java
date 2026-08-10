@@ -4,6 +4,7 @@ import com.dsv.edinav.artifact.ArtifactRepository;
 import com.dsv.edinav.common.ApiException;
 import com.dsv.edinav.workflow.dto.CreateVersionRequest;
 import com.dsv.edinav.workflow.dto.ImportPhaseNode;
+import com.dsv.edinav.workflow.dto.ImportReviewNode;
 import com.dsv.edinav.workflow.dto.ImportStepNode;
 import com.dsv.edinav.workflow.dto.ImportTransition;
 import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.time.Instant;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -39,6 +41,7 @@ public class WorkflowImportExportService {
     private final BusinessRoleRepository roleRepository;
     private final WorkflowPhaseRepository phaseRepository;
     private final ArtifactRepository artifactRepository;
+    private final StepReviewRepository reviewRepository;
     private final WorkflowService workflowService;
 
     public WorkflowImportExportService(WorkflowRepository workflowRepository,
@@ -47,6 +50,7 @@ public class WorkflowImportExportService {
                                        BusinessRoleRepository roleRepository,
                                        WorkflowPhaseRepository phaseRepository,
                                        ArtifactRepository artifactRepository,
+                                       StepReviewRepository reviewRepository,
                                        WorkflowService workflowService) {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
@@ -54,6 +58,7 @@ public class WorkflowImportExportService {
         this.roleRepository = roleRepository;
         this.phaseRepository = phaseRepository;
         this.artifactRepository = artifactRepository;
+        this.reviewRepository = reviewRepository;
         this.workflowService = workflowService;
     }
 
@@ -73,6 +78,7 @@ public class WorkflowImportExportService {
         workflow.setDescription(request.description());
         workflow.setStatus(request.status() == null ? WorkflowStatus.DRAFT : workflowService.parseStatus(request.status()));
         workflow.setOrderIndex(workflowRepository.nextOrderIndex());
+        workflow.setConfidence(WorkflowService.clampConfidence(request.confidence()));
         workflow.setTags(workflowService.cleanTags(request.tags()));
         workflowService.saveAsNewGroup(workflow);
         populateFromImport(workflow, request);
@@ -92,7 +98,7 @@ public class WorkflowImportExportService {
     @Transactional
     public WorkflowDto createVersion(Long sourceId, CreateVersionRequest request) {
         Workflow source = workflowService.requireWorkflow(sourceId);
-        ImportWorkflowRequest snapshot = exportWorkflow(sourceId, true);
+        ImportWorkflowRequest snapshot = exportWorkflow(sourceId, true, true);
         Workflow version = new Workflow();
         version.setName(source.getName());
         version.setDescription(source.getDescription());
@@ -103,6 +109,7 @@ public class WorkflowImportExportService {
         version.setCurrent(false);
         version.setOrderIndex(source.getOrderIndex());
         version.setFolderId(source.getFolderId());
+        version.setConfidence(source.getConfidence());
         version.setTags(new ArrayList<>(source.getTags()));
         workflowRepository.save(version);
         populateFromImport(version, snapshot);
@@ -138,6 +145,7 @@ public class WorkflowImportExportService {
             step.setPhaseId(resolveImportedPhase(node.phase(), phaseRefToId));
             step.setOrderIndex(order++);
             stepRepository.save(step);
+            saveReviews(step.getId(), node.reviews());
             refToId.put(ref, step.getId());
             importSteps(node.children(), step.getId(), workflowId, refToId, roleCache, phaseRefToId);
         }
@@ -166,6 +174,34 @@ public class WorkflowImportExportService {
             order++;
         }
         return refToId;
+    }
+
+    /** Persists an imported step's reviews, defaulting a missing {@code createdAt} to now. Skipped when null. */
+    private void saveReviews(Long stepId, List<ImportReviewNode> reviews) {
+        if (reviews == null) {
+            return;
+        }
+        for (ImportReviewNode node : reviews) {
+            if (node == null || node.content() == null || node.content().isBlank()) {
+                continue;
+            }
+            StepReview review = new StepReview();
+            review.setStepId(stepId);
+            review.setContent(node.content().trim());
+            Instant createdAt = node.createdAt() != null ? node.createdAt() : Instant.now();
+            review.setCreatedAt(createdAt);
+            review.setUpdatedAt(createdAt);
+            reviewRepository.save(review);
+        }
+    }
+
+    /** On update-import, replace a step's reviews only when the JSON carries them; a null list keeps existing. */
+    private void replaceReviewsOnUpdate(Long stepId, List<ImportReviewNode> reviews) {
+        if (reviews == null) {
+            return;
+        }
+        reviewRepository.deleteByStepId(stepId);
+        saveReviews(stepId, reviews);
     }
 
     private Long resolveImportedPhase(String phaseRef, Map<String, Long> phaseRefToId) {
@@ -216,16 +252,21 @@ public class WorkflowImportExportService {
      * update-import match them back to the existing rows. Phases are omitted unless requested.
      */
     @Transactional(readOnly = true)
-    public ImportWorkflowRequest exportWorkflow(Long id, boolean includePhases) {
+    public ImportWorkflowRequest exportWorkflow(Long id, boolean includePhases, boolean includeReviews) {
         Workflow workflow = workflowService.requireWorkflow(id);
         List<WorkflowStep> steps = stepRepository.findByWorkflowIdOrderByOrderIndexAsc(id);
         Map<Long, BusinessRole> roles = roleRepository.findAll().stream()
                 .collect(Collectors.toMap(BusinessRole::getId, Function.identity()));
         Map<Long, WorkflowPhase> phasesById = phaseRepository.findByWorkflowIdOrderByOrderIndexAsc(id).stream()
                 .collect(Collectors.toMap(WorkflowPhase::getId, Function.identity()));
+        Map<Long, List<StepReview>> reviewsByStep = includeReviews
+                ? reviewRepository.findByStepIdInOrderByCreatedAtDescIdDesc(
+                        steps.stream().map(WorkflowStep::getId).toList()).stream()
+                        .collect(Collectors.groupingBy(StepReview::getStepId))
+                : Map.of();
         Map<Long, List<WorkflowStep>> byParent = steps.stream()
                 .collect(Collectors.groupingBy(s -> s.getParentId() == null ? 0L : s.getParentId()));
-        List<ImportStepNode> stepNodes = exportStepNodes(0L, byParent, roles, phasesById, includePhases);
+        List<ImportStepNode> stepNodes = exportStepNodes(0L, byParent, roles, phasesById, includePhases, reviewsByStep);
 
         List<Long> stepIds = steps.stream().map(WorkflowStep::getId).toList();
         List<ImportTransition> transitions = transitionRepository.findAll().stream()
@@ -246,13 +287,16 @@ public class WorkflowImportExportService {
                         .sorted(String.CASE_INSENSITIVE_ORDER)
                         .toList();
         return new ImportWorkflowRequest(workflow.getName(), workflow.getDescription(),
-                workflow.getStatus().name(), tagNames,
+                workflow.getStatus().name(),
+                workflow.getConfidence() == 0 ? null : workflow.getConfidence(),
+                tagNames,
                 phaseNodes, stepNodes, transitions);
     }
 
     private List<ImportStepNode> exportStepNodes(Long parentKey, Map<Long, List<WorkflowStep>> byParent,
                                                  Map<Long, BusinessRole> roles,
-                                                 Map<Long, WorkflowPhase> phasesById, boolean includePhases) {
+                                                 Map<Long, WorkflowPhase> phasesById, boolean includePhases,
+                                                 Map<Long, List<StepReview>> reviewsByStep) {
         return byParent.getOrDefault(parentKey, List.of()).stream()
                 .sorted(Comparator.comparingInt(WorkflowStep::getOrderIndex))
                 .map(step -> {
@@ -262,9 +306,13 @@ public class WorkflowImportExportService {
                     if (includePhases && step.getPhaseId() != null && phasesById.containsKey(step.getPhaseId())) {
                         phaseRef = phaseRef(step.getPhaseId());
                     }
-                    List<ImportStepNode> children = exportStepNodes(step.getId(), byParent, roles, phasesById, includePhases);
+                    List<ImportReviewNode> reviewNodes = reviewsByStep.getOrDefault(step.getId(), List.of()).stream()
+                            .map(r -> new ImportReviewNode(r.getContent(), r.getCreatedAt()))
+                            .toList();
+                    List<ImportStepNode> children = exportStepNodes(step.getId(), byParent, roles, phasesById, includePhases, reviewsByStep);
                     return new ImportStepNode(stepRef(step.getId()), step.getLineageKey(), step.getName(), step.getDescription(),
                             step.getNotes(), null, roleNames.isEmpty() ? null : roleNames, phaseRef,
+                            reviewNodes.isEmpty() ? null : reviewNodes,
                             children.isEmpty() ? null : children);
                 })
                 .toList();
@@ -326,6 +374,7 @@ public class WorkflowImportExportService {
             }
         }
         if (!toDelete.isEmpty()) {
+            reviewRepository.deleteByStepIdIn(toDelete);
             stepRepository.deleteAllById(toDelete);
         }
 
@@ -338,6 +387,9 @@ public class WorkflowImportExportService {
         }
         if (request.tags() != null) {
             workflow.setTags(workflowService.cleanTags(request.tags()));
+        }
+        if (request.confidence() != null) {
+            workflow.setConfidence(WorkflowService.clampConfidence(request.confidence()));
         }
         return workflowService.toWorkflowDto(workflowRepository.save(workflow));
     }
@@ -402,6 +454,7 @@ public class WorkflowImportExportService {
             step.setPhaseId(phaseId);
             step.setOrderIndex(order++);
             stepRepository.save(step);
+            replaceReviewsOnUpdate(step.getId(), node.reviews());
             ctx.refToId.put(ref, step.getId());
             upsertSteps(node.children(), step.getId(), phaseId, ctx);
         }

@@ -35,6 +35,7 @@ class WorkflowServiceTest {
     @Autowired private WorkflowPhaseRepository phaseRepository;
     @Autowired private WorkflowFolderRepository folderRepository;
     @Autowired private ArtifactRepository artifactRepository;
+    @Autowired private StepReviewRepository reviewRepository;
 
     private WorkflowService service;
     private WorkflowImportExportService importExport;
@@ -42,18 +43,18 @@ class WorkflowServiceTest {
     @BeforeEach
     void setUp() {
         service = new WorkflowService(workflowRepository, stepRepository, transitionRepository,
-                roleRepository, phaseRepository, folderRepository, artifactRepository);
+                roleRepository, phaseRepository, folderRepository, artifactRepository, reviewRepository);
         importExport = new WorkflowImportExportService(workflowRepository, stepRepository, transitionRepository,
-                roleRepository, phaseRepository, artifactRepository, service);
+                roleRepository, phaseRepository, artifactRepository, reviewRepository, service);
     }
 
     /** A 3-step workflow: roots "Receive"(child "Log") and "Validate", edge Receive->Validate, phase "Intake". */
     private ImportWorkflowRequest sampleImport(String name) {
-        ImportStepNode log = new ImportStepNode("c", null, "Log", null, null, "Ops", null, "p1", null);
-        ImportStepNode receive = new ImportStepNode("a", null, "Receive", null, null, "Ops", null, "p1", List.of(log));
-        ImportStepNode validate = new ImportStepNode("b", null, "Validate", null, null, null, List.of("QA"), "p1", null);
+        ImportStepNode log = new ImportStepNode("c", null, "Log", null, null, "Ops", null, "p1", null, null);
+        ImportStepNode receive = new ImportStepNode("a", null, "Receive", null, null, "Ops", null, "p1", null, List.of(log));
+        ImportStepNode validate = new ImportStepNode("b", null, "Validate", null, null, null, List.of("QA"), "p1", null, null);
         return new ImportWorkflowRequest(
-                name, "desc", "DRAFT", List.of("edi"),
+                name, "desc", "DRAFT", null, List.of("edi"),
                 List.of(new ImportPhaseNode("p1", "Intake", "#123456", 0, null)),
                 List.of(receive, validate),
                 List.of(new ImportTransition("a", "b", "next")));
@@ -88,7 +89,7 @@ class WorkflowServiceTest {
         WorkflowDto imported = importExport.importWorkflow(sampleImport("RoundTrip"));
         assertThat(imported.stepCount()).isEqualTo(3);
 
-        ImportWorkflowRequest out = importExport.exportWorkflow(imported.id(), true);
+        ImportWorkflowRequest out = importExport.exportWorkflow(imported.id(), true, true);
         assertThat(out.name()).isEqualTo("RoundTrip");
         assertThat(out.steps()).extracting(ImportStepNode::name)
                 .containsExactly("Receive", "Validate");
@@ -145,7 +146,7 @@ class WorkflowServiceTest {
         List<Long> before = collectIds(service.getTree(imported.id()), new ArrayList<>());
 
         // Re-importing the workflow's own export must match every step by ref and keep its id.
-        importExport.updateWorkflowFromImport(imported.id(), importExport.exportWorkflow(imported.id(), true));
+        importExport.updateWorkflowFromImport(imported.id(), importExport.exportWorkflow(imported.id(), true, true));
 
         List<Long> after = collectIds(service.getTree(imported.id()), new ArrayList<>());
         assertThat(after).containsExactlyInAnyOrderElementsOf(before);

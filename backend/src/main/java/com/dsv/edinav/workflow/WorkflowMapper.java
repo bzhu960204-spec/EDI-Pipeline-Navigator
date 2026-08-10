@@ -1,6 +1,7 @@
 package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.workflow.dto.BusinessRoleDto;
+import com.dsv.edinav.workflow.dto.StepReviewDto;
 import com.dsv.edinav.workflow.dto.WorkflowFolderDto;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseDto;
 
@@ -21,5 +22,10 @@ final class WorkflowMapper {
     static WorkflowPhaseDto toPhaseDto(WorkflowPhase phase) {
         return new WorkflowPhaseDto(phase.getId(), phase.getWorkflowId(), phase.getName(),
                 phase.getColor(), phase.getOrderIndex(), phase.getDescription());
+    }
+
+    static StepReviewDto toReviewDto(StepReview review) {
+        return new StepReviewDto(review.getId(), review.getStepId(), review.getContent(),
+                review.getCreatedAt(), review.getUpdatedAt());
     }
 }

@@ -13,6 +13,7 @@ public record WorkflowStepDto(
         String lineageKey,
         List<BusinessRoleDto> businessRoles,
         WorkflowPhaseDto phase,
+        List<StepReviewDto> reviews,
         List<WorkflowStepDto> children,
         List<TransitionDto> transitions
 ) {}

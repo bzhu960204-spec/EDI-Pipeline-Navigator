@@ -14,6 +14,7 @@ public record ImportWorkflowRequest(
         @NotBlank @Size(max = 200) String name,
         @Size(max = 4000) String description,
         @Size(max = 20) String status,
+        Integer confidence,
         List<String> tags,
         List<ImportPhaseNode> phases,
         List<ImportStepNode> steps,

@@ -1,6 +1,7 @@
 package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.workflow.dto.CreateVersionRequest;
+import com.dsv.edinav.workflow.dto.ConfidenceRequest;
 import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
@@ -70,8 +71,9 @@ public class WorkflowController {
 
     @GetMapping("/workflows/{id}/export")
     public ImportWorkflowRequest exportWorkflow(@PathVariable Long id,
-                                                @RequestParam(defaultValue = "false") boolean includePhases) {
-        return importExportService.exportWorkflow(id, includePhases);
+                                                @RequestParam(defaultValue = "false") boolean includePhases,
+                                                @RequestParam(defaultValue = "false") boolean includeReviews) {
+        return importExportService.exportWorkflow(id, includePhases, includeReviews);
     }
 
     @PutMapping("/workflows/{id}/import")
@@ -97,6 +99,12 @@ public class WorkflowController {
     @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto updateVersionLabel(@PathVariable Long id, @Valid @RequestBody CreateVersionRequest request) {
         return workflowService.updateVersionLabel(id, request == null ? null : request.label());
+    }
+
+    @PutMapping("/workflows/{id}/confidence")
+    @PreAuthorize("hasRole('ADMIN')")
+    public WorkflowDto updateConfidence(@PathVariable Long id, @Valid @RequestBody ConfidenceRequest request) {
+        return workflowService.setConfidence(id, request.confidence());
     }
 
     @PostMapping("/workflows/{id}/set-current")

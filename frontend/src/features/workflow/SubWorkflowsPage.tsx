@@ -9,12 +9,14 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Rate,
   Row,
   Segmented,
   Select,
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   Upload,
 } from 'antd';
@@ -46,6 +48,7 @@ import {
   fetchFolders,
   fetchWorkflows,
   importWorkflow,
+  setWorkflowConfidence,
   updateWorkflow,
   type ImportWorkflowPayload,
   type Workflow,
@@ -75,6 +78,13 @@ function statusColor(status: WorkflowStatus) {
   return status === 'PUBLISHED' ? 'green' : 'default';
 }
 
+// 1-2 low (red), 3-4 medium (orange), 5 high (green); 0 has no filled stars.
+function confidenceColor(value: number) {
+  if (value >= 5) return '#52c41a';
+  if (value >= 3) return '#faad14';
+  if (value >= 1) return '#ff4d4f';
+  return undefined;
+}
 export function SubWorkflowsPage() {
   const { message } = AntApp.useApp();
   const navigate = useNavigate();
@@ -89,6 +99,9 @@ export function SubWorkflowsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<WorkflowStatus | undefined>(undefined);
   const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [tagFilterSearch, setTagFilterSearch] = useState('');
+  const [tagFieldSearch, setTagFieldSearch] = useState('');
+  const [minConfidence, setMinConfidence] = useState<number | undefined>(undefined);
   const [view, setView] = useState<LibraryView>(
     () => (localStorage.getItem(VIEW_STORAGE_KEY) as LibraryView) || 'table',
   );
@@ -137,19 +150,25 @@ export function SubWorkflowsPage() {
     return workflows.filter((wf) => {
       if (statusFilter && wf.status !== statusFilter) return false;
       if (tagFilter.length > 0 && !tagFilter.every((t) => wf.tags.includes(t))) return false;
+      if (minConfidence != null && (wf.confidence ?? 0) < minConfidence) return false;
       if (q) {
         const haystack = `${wf.name} ${wf.description ?? ''}`.toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
     });
-  }, [workflows, search, statusFilter, tagFilter]);
+  }, [workflows, search, statusFilter, tagFilter, minConfidence]);
 
-  const hasFilters = search.trim() !== '' || statusFilter !== undefined || tagFilter.length > 0;
+  const hasFilters =
+    search.trim() !== '' ||
+    statusFilter !== undefined ||
+    tagFilter.length > 0 ||
+    minConfidence !== undefined;
   const clearFilters = () => {
     setSearch('');
     setStatusFilter(undefined);
     setTagFilter([]);
+    setMinConfidence(undefined);
   };
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['workflows'] });
@@ -182,6 +201,25 @@ export function SubWorkflowsPage() {
       invalidate();
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete workflow')),
+  });
+
+  const setConfidence = useMutation({
+    mutationFn: ({ id, value }: { id: number; value: number }) => setWorkflowConfidence(id, value),
+    onMutate: async ({ id, value }) => {
+      await queryClient.cancelQueries({ queryKey: ['workflows'] });
+      const prev = queryClient.getQueryData<Workflow[]>(['workflows']);
+      queryClient.setQueryData<Workflow[]>(['workflows'], (old) =>
+        (old ?? []).map((w) => (w.id === id ? { ...w, confidence: value } : w)),
+      );
+      return { prev };
+    },
+    onError: (e, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['workflows'], ctx.prev);
+      message.error(extractErrorMessage(e, 'Failed to update confidence'));
+    },
+    onSettled: () => {
+      invalidate();
+    },
   });
 
   const move = useMutation({
@@ -307,6 +345,22 @@ export function SubWorkflowsPage() {
       render: (status: WorkflowStatus) => <Tag color={statusColor(status)}>{status}</Tag>,
     },
     { title: 'Steps', dataIndex: 'stepCount', width: 80 },
+    {
+      title: 'Confidence',
+      key: 'confidence',
+      width: 160,
+      render: (_, wf) => (
+        <Tooltip title={admin ? 'Click to rate (click same star to clear)' : `${wf.confidence ?? 0} / 5`}>
+          <Rate
+            allowClear
+            disabled={!admin}
+            style={{ color: confidenceColor(wf.confidence ?? 0) }}
+            value={wf.confidence ?? 0}
+            onChange={(value) => setConfidence.mutate({ id: wf.id, value })}
+          />
+        </Tooltip>
+      ),
+    },
     {
       title: 'Actions',
       key: 'actions',
@@ -485,8 +539,20 @@ export function SubWorkflowsPage() {
           placeholder="Tags"
           value={tagFilter}
           onChange={(v) => setTagFilter(v)}
+          searchValue={tagFilterSearch}
+          onSearch={setTagFilterSearch}
+          open={tagFilterSearch.length > 0}
+          notFoundContent={null}
           style={{ minWidth: 220 }}
           options={allTags.map((t) => ({ value: t, label: t }))}
+        />
+        <Select
+          allowClear
+          placeholder="Min confidence"
+          value={minConfidence}
+          onChange={(v) => setMinConfidence(v)}
+          style={{ width: 160 }}
+          options={[1, 2, 3, 4, 5].map((n) => ({ value: n, label: `${n}+ stars` }))}
         />
         {hasFilters && <Button onClick={clearFilters}>Clear filters</Button>}
         <Segmented
@@ -539,6 +605,11 @@ export function SubWorkflowsPage() {
               allowClear
               placeholder="Type a tag and press Enter"
               tokenSeparators={[',']}
+              searchValue={tagFieldSearch}
+              onSearch={setTagFieldSearch}
+              onChange={() => setTagFieldSearch('')}
+              open={tagFieldSearch.length > 0}
+              notFoundContent={null}
               options={allTags.map((t) => ({ value: t, label: t }))}
             />
           </Form.Item>

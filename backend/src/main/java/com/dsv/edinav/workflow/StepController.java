@@ -1,6 +1,8 @@
 package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.workflow.dto.CreateStepRequest;
+import com.dsv.edinav.workflow.dto.ReviewRequest;
+import com.dsv.edinav.workflow.dto.StepReviewDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
 import jakarta.validation.Valid;
@@ -50,5 +52,24 @@ public class StepController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteStep(@PathVariable Long id) {
         workflowService.deleteStep(id);
+    }
+
+    @PostMapping("/steps/{id}/reviews")
+    @PreAuthorize("hasRole('ADMIN')")
+    public StepReviewDto addReview(@PathVariable Long id, @Valid @RequestBody ReviewRequest request) {
+        return workflowService.addReview(id, request);
+    }
+
+    @PutMapping("/reviews/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public StepReviewDto updateReview(@PathVariable Long id, @Valid @RequestBody ReviewRequest request) {
+        return workflowService.updateReview(id, request);
+    }
+
+    @DeleteMapping("/reviews/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteReview(@PathVariable Long id) {
+        workflowService.deleteReview(id);
     }
 }

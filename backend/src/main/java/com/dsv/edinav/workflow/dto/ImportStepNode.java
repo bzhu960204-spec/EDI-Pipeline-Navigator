@@ -15,5 +15,6 @@ public record ImportStepNode(
         String role,
         List<String> roles,
         String phase,
+        List<ImportReviewNode> reviews,
         List<ImportStepNode> children
 ) {}

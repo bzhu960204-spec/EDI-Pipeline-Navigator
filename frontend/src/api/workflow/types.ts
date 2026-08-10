@@ -20,6 +20,7 @@ export interface Workflow {
   orderIndex: number;
   folderId?: number | null;
   stepCount: number;
+  confidence: number;
   tags: string[];
 }
 
@@ -56,6 +57,14 @@ export interface Transition {
   orderIndex: number;
 }
 
+export interface StepReview {
+  id: number;
+  stepId: number;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface WorkflowStep {
   id: number;
   workflowId: number;
@@ -67,6 +76,7 @@ export interface WorkflowStep {
   lineageKey?: string | null;
   businessRoles: BusinessRole[];
   phase?: WorkflowPhase | null;
+  reviews: StepReview[];
   children: WorkflowStep[];
   transitions: Transition[];
 }
@@ -111,7 +121,13 @@ export interface ImportStepNode {
   role?: string;
   roles?: string[];
   phase?: string;
+  reviews?: ImportReviewNode[];
   children?: ImportStepNode[];
+}
+
+export interface ImportReviewNode {
+  content: string;
+  createdAt?: string;
 }
 
 export interface ImportPhaseNode {
@@ -132,6 +148,7 @@ export interface ImportWorkflowPayload {
   name: string;
   description?: string;
   status?: WorkflowStatus;
+  confidence?: number;
   tags?: string[];
   phases?: ImportPhaseNode[];
   steps?: ImportStepNode[];

@@ -1,6 +1,7 @@
 package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.workflow.dto.BusinessRoleDto;
+import com.dsv.edinav.workflow.dto.StepReviewDto;
 import com.dsv.edinav.workflow.dto.TransitionDto;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
 
@@ -21,13 +22,14 @@ final class WorkflowStepAssembler {
                                                Map<Long, List<WorkflowTransition>> byFrom,
                                                Map<Long, BusinessRole> roles,
                                                Map<Long, WorkflowPhase> phases,
+                                               Map<Long, List<StepReviewDto>> reviews,
                                                Map<Long, String> stepNames) {
         List<WorkflowStep> children = byParent.getOrDefault(parentKey, List.of()).stream()
                 .sorted(Comparator.comparingInt(WorkflowStep::getOrderIndex))
                 .toList();
         List<WorkflowStepDto> result = new ArrayList<>();
         for (WorkflowStep step : children) {
-            result.add(toStepDto(step, byParent, byFrom, roles, phases, stepNames));
+            result.add(toStepDto(step, byParent, byFrom, roles, phases, reviews, stepNames));
         }
         return result;
     }
@@ -37,8 +39,9 @@ final class WorkflowStepAssembler {
                                      Map<Long, List<WorkflowTransition>> byFrom,
                                      Map<Long, BusinessRole> roles,
                                      Map<Long, WorkflowPhase> phases,
+                                     Map<Long, List<StepReviewDto>> reviews,
                                      Map<Long, String> stepNames) {
-        List<WorkflowStepDto> children = buildChildren(step.getId(), byParent, byFrom, roles, phases, stepNames);
+        List<WorkflowStepDto> children = buildChildren(step.getId(), byParent, byFrom, roles, phases, reviews, stepNames);
         List<TransitionDto> transitions = byFrom.getOrDefault(step.getId(), List.of()).stream()
                 .sorted(Comparator.comparingInt(WorkflowTransition::getOrderIndex))
                 .map(t -> new TransitionDto(t.getId(), t.getFromStepId(), t.getToStepId(),
@@ -53,6 +56,7 @@ final class WorkflowStepAssembler {
         return new WorkflowStepDto(step.getId(), step.getWorkflowId(), step.getParentId(), step.getOrderIndex(),
                 step.getName(), step.getDescription(), step.getNotes(), step.getLineageKey(),
                 roleDtos,
-                phase == null ? null : WorkflowMapper.toPhaseDto(phase), children, transitions);
+                phase == null ? null : WorkflowMapper.toPhaseDto(phase),
+                reviews.getOrDefault(step.getId(), List.of()), children, transitions);
     }
 }
