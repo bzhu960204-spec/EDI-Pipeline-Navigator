@@ -38,6 +38,8 @@ public class WorkflowImportExportService {
     private final WorkflowRepository workflowRepository;
     private final WorkflowStepRepository stepRepository;
     private final WorkflowTransitionRepository transitionRepository;
+    private final TransitionGroupRepository transitionGroupRepository;
+    private final TransitionCoFireGroupRepository coFireGroupRepository;
     private final BusinessRoleRepository roleRepository;
     private final WorkflowPhaseRepository phaseRepository;
     private final ArtifactRepository artifactRepository;
@@ -47,6 +49,8 @@ public class WorkflowImportExportService {
     public WorkflowImportExportService(WorkflowRepository workflowRepository,
                                        WorkflowStepRepository stepRepository,
                                        WorkflowTransitionRepository transitionRepository,
+                                       TransitionGroupRepository transitionGroupRepository,
+                                       TransitionCoFireGroupRepository coFireGroupRepository,
                                        BusinessRoleRepository roleRepository,
                                        WorkflowPhaseRepository phaseRepository,
                                        ArtifactRepository artifactRepository,
@@ -55,6 +59,8 @@ public class WorkflowImportExportService {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
         this.transitionRepository = transitionRepository;
+        this.transitionGroupRepository = transitionGroupRepository;
+        this.coFireGroupRepository = coFireGroupRepository;
         this.roleRepository = roleRepository;
         this.phaseRepository = phaseRepository;
         this.artifactRepository = artifactRepository;
@@ -219,19 +225,59 @@ public class WorkflowImportExportService {
         if (transitions == null) {
             return;
         }
-        Map<Long, Integer> orderByFrom = new HashMap<>();
+        Map<Long, Integer> groupOrderByFrom = new HashMap<>();
+        Map<String, TransitionGroup> groupCache = new HashMap<>();
+        Map<Long, Integer> edgeOrderByGroup = new HashMap<>();
+        Map<String, List<WorkflowTransition>> coFireByRef = new LinkedHashMap<>();
         for (ImportTransition t : transitions) {
             Long fromId = requireRefId(t.from(), refToId, "transition 'from'");
             Long toId = requireRefId(t.to(), refToId, "transition 'to'");
             if (fromId.equals(toId)) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "A step cannot transition to itself: " + t.from());
             }
+            String label = t.label() == null || t.label().isBlank() ? null : t.label().trim();
+            String key = fromId + "|" + (label == null ? "" : label);
+            TransitionGroup group = groupCache.computeIfAbsent(key, k -> {
+                TransitionGroup g = new TransitionGroup();
+                g.setFromStepId(fromId);
+                g.setLabel(label);
+                g.setOrderIndex(groupOrderByFrom.merge(fromId, 1, Integer::sum) - 1);
+                return transitionGroupRepository.save(g);
+            });
             WorkflowTransition transition = new WorkflowTransition();
+            transition.setGroupId(group.getId());
             transition.setFromStepId(fromId);
             transition.setToStepId(toId);
-            transition.setLabel(t.label());
-            transition.setOrderIndex(orderByFrom.merge(fromId, 1, Integer::sum) - 1);
+            transition.setOrderIndex(edgeOrderByGroup.merge(group.getId(), 1, Integer::sum) - 1);
             transitionRepository.save(transition);
+            String coFireRef = t.coFireGroup() == null || t.coFireGroup().isBlank() ? null : t.coFireGroup().trim();
+            if (coFireRef != null) {
+                coFireByRef.computeIfAbsent(coFireRef, k -> new ArrayList<>()).add(transition);
+            }
+        }
+        assignImportedCoFireGroups(coFireByRef);
+    }
+
+    /** Turns each imported co-fire ref into a group, once its members share a target and number at least two. */
+    private void assignImportedCoFireGroups(Map<String, List<WorkflowTransition>> coFireByRef) {
+        Map<Long, Integer> orderByTarget = new HashMap<>();
+        for (List<WorkflowTransition> members : coFireByRef.values()) {
+            if (members.size() < 2) {
+                continue;
+            }
+            Long toStepId = members.get(0).getToStepId();
+            boolean sameTarget = members.stream().allMatch(m -> m.getToStepId().equals(toStepId));
+            if (!sameTarget) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Co-fire transitions must share the same target step");
+            }
+            TransitionCoFireGroup group = new TransitionCoFireGroup();
+            group.setToStepId(toStepId);
+            group.setOrderIndex(orderByTarget.merge(toStepId, 1, Integer::sum) - 1);
+            coFireGroupRepository.save(group);
+            for (WorkflowTransition m : members) {
+                m.setCoFireGroupId(group.getId());
+                transitionRepository.save(m);
+            }
         }
     }
 
@@ -269,10 +315,17 @@ public class WorkflowImportExportService {
         List<ImportStepNode> stepNodes = exportStepNodes(0L, byParent, roles, phasesById, includePhases, reviewsByStep);
 
         List<Long> stepIds = steps.stream().map(WorkflowStep::getId).toList();
+        Map<Long, TransitionGroup> groups = transitionGroupRepository.findAll().stream()
+                .collect(Collectors.toMap(TransitionGroup::getId, Function.identity()));
         List<ImportTransition> transitions = transitionRepository.findAll().stream()
                 .filter(t -> stepIds.contains(t.getFromStepId()))
                 .sorted(Comparator.comparingInt(WorkflowTransition::getOrderIndex))
-                .map(t -> new ImportTransition(stepRef(t.getFromStepId()), stepRef(t.getToStepId()), t.getLabel()))
+                .map(t -> {
+                    TransitionGroup g = t.getGroupId() == null ? null : groups.get(t.getGroupId());
+                    return new ImportTransition(stepRef(t.getFromStepId()), stepRef(t.getToStepId()),
+                            g == null ? null : g.getLabel(),
+                            t.getCoFireGroupId() == null ? null : "cf" + t.getCoFireGroupId());
+                })
                 .toList();
 
         List<ImportPhaseNode> phaseNodes = null;
@@ -355,9 +408,13 @@ public class WorkflowImportExportService {
 
         // Drop this workflow's transitions up front; they are fully re-created from the JSON below.
         List<Long> existingIds = new ArrayList<>(existingById.keySet());
-        transitionRepository.findAll().stream()
+        List<WorkflowTransition> obsolete = transitionRepository.findAll().stream()
                 .filter(t -> existingIds.contains(t.getFromStepId()) || existingIds.contains(t.getToStepId()))
-                .forEach(transitionRepository::delete);
+                .toList();
+        List<Long> obsoleteCoFire = obsolete.stream().map(WorkflowTransition::getCoFireGroupId)
+                .filter(java.util.Objects::nonNull).distinct().toList();
+        transitionRepository.deleteAll(obsolete);
+        coFireGroupRepository.deleteAllById(obsoleteCoFire);
 
         UpdateImportContext ctx = new UpdateImportContext(id, existingById, phaseRefToId,
                 existingPhaseByName, hasPhases);

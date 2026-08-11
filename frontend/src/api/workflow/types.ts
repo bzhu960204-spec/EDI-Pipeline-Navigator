@@ -55,6 +55,11 @@ export interface Transition {
   toStepName: string;
   label?: string | null;
   orderIndex: number;
+  /** Condition group this edge belongs to; edges sharing a group start together (AND). */
+  groupId: number | null;
+  groupOrderIndex: number;
+  /** Co-fire group this edge joins on arrival; edges sharing it must all fire before the target starts (AND). */
+  coFireGroupId: number | null;
 }
 
 export interface StepReview {
@@ -64,6 +69,8 @@ export interface StepReview {
   createdAt: string;
   updatedAt: string;
 }
+
+export type StepFlagLevel = 'critical' | 'important' | 'review-later';
 
 export interface WorkflowStep {
   id: number;
@@ -79,6 +86,8 @@ export interface WorkflowStep {
   reviews: StepReview[];
   children: WorkflowStep[];
   transitions: Transition[];
+  /** Personal importance mark; local to this workflow version and never exported. */
+  flag?: StepFlagLevel | null;
 }
 
 export interface CreateStepPayload {
@@ -112,6 +121,21 @@ export interface CreateTransitionPayload {
   label?: string;
 }
 
+export interface CreateTransitionGroupPayload {
+  fromStepId: number;
+  toStepIds: number[];
+  label?: string;
+}
+
+export interface UpdateTransitionGroupPayload {
+  label?: string | null;
+  toStepIds: number[];
+}
+
+export interface CoFireGroupPayload {
+  transitionIds: number[];
+}
+
 export interface ImportStepNode {
   ref: string;
   lineageKey?: string;
@@ -142,6 +166,7 @@ export interface ImportTransition {
   from: string;
   to: string;
   label?: string;
+  coFireGroup?: string;
 }
 
 export interface ImportWorkflowPayload {

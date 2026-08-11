@@ -7,7 +7,10 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   addReview,
   createStep,
-  createTransition,
+  createTransitionGroup,
+  createCoFireGroup,
+  deleteCoFireGroup,
+  updateCoFireGroup,
   deleteReview,
   deleteStep,
   deleteTransition,
@@ -18,10 +21,13 @@ import {
   fetchWorkflow,
   fetchWorkflowTree,
   setCurrentVersion,
+  setStepFlag,
   updateReview,
   updateStep,
+  updateTransitionGroup,
   updateWorkflowFromImport,
   type ImportWorkflowPayload,
+  type StepFlagLevel,
   type Transition,
   type WorkflowStep,
 } from '../../api/workflow';
@@ -32,7 +38,8 @@ import { useFlowNavigation } from './useFlowNavigation';
 import { colorForTag } from './tagColor';
 import { StepDetail } from './StepDetail';
 import { StepFormModal, type StepFormValues } from './StepFormModal';
-import { TransitionFormModal } from './TransitionFormModal';
+import { TransitionFormModal, type EditTransitionGroup } from './TransitionFormModal';
+import { CoFireModal } from './CoFireModal';
 import { PhaseManagerPanel } from './PhaseManagerPanel';
 import { WorkflowGraph } from './WorkflowGraph';
 import { VersionManagerModal } from './VersionManagerModal';
@@ -60,6 +67,8 @@ export function WorkflowPage() {
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
   const [stepModal, setStepModal] = useState<StepModalState>(null);
   const [transitionFor, setTransitionFor] = useState<WorkflowStep | null>(null);
+  const [editGroup, setEditGroup] = useState<EditTransitionGroup | null>(null);
+  const [coFireFor, setCoFireFor] = useState<Transition | null>(null);
   const [phaseManagerOpen, setPhaseManagerOpen] = useState(false);
   const [treeGroup, setTreeGroup] = useState<TreeGrouping>('phase');
   const [exportOpen, setExportOpen] = useState(false);
@@ -183,8 +192,8 @@ export function WorkflowPage() {
   });
 
   const addTransition = useMutation({
-    mutationFn: (values: { toStepId: number; label?: string }) =>
-      createTransition({ fromStepId: transitionFor!.id, toStepId: values.toStepId, label: values.label }),
+    mutationFn: (values: { toStepIds: number[]; label?: string }) =>
+      createTransitionGroup({ fromStepId: transitionFor!.id, toStepIds: values.toStepIds, label: values.label }),
     onSuccess: () => {
       message.success('Transition added');
       setTransitionFor(null);
@@ -201,6 +210,51 @@ export function WorkflowPage() {
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to remove transition')),
   });
+
+  const editTransitionGroup = useMutation({
+    mutationFn: ({ id, toStepIds, label }: { id: number; toStepIds: number[]; label?: string }) =>
+      updateTransitionGroup(id, { toStepIds, label }),
+    onSuccess: () => {
+      message.success('Condition updated');
+      setEditGroup(null);
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to update condition')),
+  });
+
+  const saveCoFire = useMutation({
+    mutationFn: ({ transitionIds }: { groupId: number | null; transitionIds: number[] }) =>
+      coFireFor?.coFireGroupId != null
+        ? updateCoFireGroup(coFireFor.coFireGroupId, { transitionIds })
+        : createCoFireGroup({ transitionIds }),
+    onSuccess: () => {
+      message.success('Co-fire updated');
+      setCoFireFor(null);
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to update co-fire')),
+  });
+
+  const removeCoFire = useMutation({
+    mutationFn: (groupId: number) => deleteCoFireGroup(groupId),
+    onSuccess: () => {
+      message.success('Co-fire removed');
+      setCoFireFor(null);
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to remove co-fire')),
+  });
+
+  const submitCoFire = (transitionIds: number[]) => {
+    const groupId = coFireFor?.coFireGroupId ?? null;
+    if (transitionIds.length >= 2) {
+      saveCoFire.mutate({ groupId, transitionIds });
+    } else if (groupId != null) {
+      removeCoFire.mutate(groupId);
+    } else {
+      setCoFireFor(null);
+    }
+  };
 
   const addReviewM = useMutation({
     mutationFn: ({ stepId, content }: { stepId: number; content: string }) => addReview(stepId, content),
@@ -227,6 +281,12 @@ export function WorkflowPage() {
       invalidate();
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to remove review')),
+  });
+
+  const setFlagM = useMutation({
+    mutationFn: ({ stepId, level }: { stepId: number; level: StepFlagLevel | null }) => setStepFlag(stepId, level),
+    onSuccess: () => invalidate(),
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to update flag')),
   });
 
   const runExport = useMutation({
@@ -532,10 +592,13 @@ export function WorkflowPage() {
               onAddTransition={() => setTransitionFor(selectedStep)}
               onDelete={() => selectedStep && removeStep.mutate(selectedStep.id)}
               onDeleteTransition={(t) => removeTransition.mutate(t)}
+              onEditGroup={(group) => setEditGroup(group)}
+              onCoFire={(t) => setCoFireFor(t)}
               onNavigate={navigateTo}
               onAddReview={(content) => selectedStep && addReviewM.mutate({ stepId: selectedStep.id, content })}
               onUpdateReview={(id, content) => updateReviewM.mutate({ id, content })}
               onDeleteReview={(id) => removeReviewM.mutate(id)}
+              onSetFlag={(level) => selectedStep && setFlagM.mutate({ stepId: selectedStep.id, level })}
             />
             </div>
           </Col>
@@ -614,12 +677,28 @@ export function WorkflowPage() {
       </Modal>
 
       <TransitionFormModal
-        open={transitionFor != null}
-        fromStep={transitionFor}
+        open={transitionFor != null || editGroup != null}
+        fromStep={transitionFor ?? (editGroup ? selectedStep : null)}
         tree={tree}
-        confirmLoading={addTransition.isPending}
-        onCancel={() => setTransitionFor(null)}
+        editGroup={editGroup}
+        confirmLoading={addTransition.isPending || editTransitionGroup.isPending}
+        onCancel={() => {
+          setTransitionFor(null);
+          setEditGroup(null);
+        }}
         onSubmit={(values) => addTransition.mutate(values)}
+        onSubmitGroup={(values) =>
+          editGroup && editTransitionGroup.mutate({ id: editGroup.groupId, ...values })
+        }
+      />
+
+      <CoFireModal
+        open={coFireFor != null}
+        anchor={coFireFor}
+        incoming={coFireFor ? (incomingIndex.get(coFireFor.toStepId) ?? []) : []}
+        confirmLoading={saveCoFire.isPending || removeCoFire.isPending}
+        onCancel={() => setCoFireFor(null)}
+        onSubmit={submitCoFire}
       />
 
       {versionsOpen && (

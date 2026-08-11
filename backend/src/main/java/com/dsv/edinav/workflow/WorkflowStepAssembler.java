@@ -20,16 +20,18 @@ final class WorkflowStepAssembler {
     static List<WorkflowStepDto> buildChildren(Long parentKey,
                                                Map<Long, List<WorkflowStep>> byParent,
                                                Map<Long, List<WorkflowTransition>> byFrom,
+                                               Map<Long, TransitionGroup> groups,
                                                Map<Long, BusinessRole> roles,
                                                Map<Long, WorkflowPhase> phases,
                                                Map<Long, List<StepReviewDto>> reviews,
+                                               Map<Long, String> flags,
                                                Map<Long, String> stepNames) {
         List<WorkflowStep> children = byParent.getOrDefault(parentKey, List.of()).stream()
                 .sorted(Comparator.comparingInt(WorkflowStep::getOrderIndex))
                 .toList();
         List<WorkflowStepDto> result = new ArrayList<>();
         for (WorkflowStep step : children) {
-            result.add(toStepDto(step, byParent, byFrom, roles, phases, reviews, stepNames));
+            result.add(toStepDto(step, byParent, byFrom, groups, roles, phases, reviews, flags, stepNames));
         }
         return result;
     }
@@ -37,15 +39,21 @@ final class WorkflowStepAssembler {
     static WorkflowStepDto toStepDto(WorkflowStep step,
                                      Map<Long, List<WorkflowStep>> byParent,
                                      Map<Long, List<WorkflowTransition>> byFrom,
+                                     Map<Long, TransitionGroup> groups,
                                      Map<Long, BusinessRole> roles,
                                      Map<Long, WorkflowPhase> phases,
                                      Map<Long, List<StepReviewDto>> reviews,
+                                     Map<Long, String> flags,
                                      Map<Long, String> stepNames) {
-        List<WorkflowStepDto> children = buildChildren(step.getId(), byParent, byFrom, roles, phases, reviews, stepNames);
+        List<WorkflowStepDto> children = buildChildren(step.getId(), byParent, byFrom, groups, roles, phases, reviews, flags, stepNames);
         List<TransitionDto> transitions = byFrom.getOrDefault(step.getId(), List.of()).stream()
-                .sorted(Comparator.comparingInt(WorkflowTransition::getOrderIndex))
-                .map(t -> new TransitionDto(t.getId(), t.getFromStepId(), t.getToStepId(),
-                        stepNames.get(t.getToStepId()), t.getLabel(), t.getOrderIndex()))
+                .map(t -> {
+                    TransitionGroup g = t.getGroupId() == null ? null : groups.get(t.getGroupId());
+                    return new TransitionDto(t.getId(), t.getFromStepId(), t.getToStepId(),
+                            stepNames.get(t.getToStepId()), g == null ? null : g.getLabel(), t.getOrderIndex(),
+                            t.getGroupId(), g == null ? 0 : g.getOrderIndex(), t.getCoFireGroupId());
+                })
+                .sorted(Comparator.comparingInt(TransitionDto::groupOrderIndex).thenComparingInt(TransitionDto::orderIndex))
                 .toList();
         List<BusinessRoleDto> roleDtos = step.getBusinessRoleIds().stream()
                 .map(roles::get)
@@ -57,6 +65,7 @@ final class WorkflowStepAssembler {
                 step.getName(), step.getDescription(), step.getNotes(), step.getLineageKey(),
                 roleDtos,
                 phase == null ? null : WorkflowMapper.toPhaseDto(phase),
-                reviews.getOrDefault(step.getId(), List.of()), children, transitions);
+                reviews.getOrDefault(step.getId(), List.of()), children, transitions,
+                flags.get(step.getId()));
     }
 }

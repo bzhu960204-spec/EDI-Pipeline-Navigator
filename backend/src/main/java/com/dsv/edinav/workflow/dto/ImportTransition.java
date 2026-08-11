@@ -4,5 +4,6 @@ package com.dsv.edinav.workflow.dto;
 public record ImportTransition(
         String from,
         String to,
-        String label
+        String label,
+        String coFireGroup
 ) {}

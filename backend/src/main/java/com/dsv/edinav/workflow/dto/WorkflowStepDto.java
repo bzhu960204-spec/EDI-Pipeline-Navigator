@@ -15,5 +15,6 @@ public record WorkflowStepDto(
         WorkflowPhaseDto phase,
         List<StepReviewDto> reviews,
         List<WorkflowStepDto> children,
-        List<TransitionDto> transitions
+        List<TransitionDto> transitions,
+        String flag
 ) {}

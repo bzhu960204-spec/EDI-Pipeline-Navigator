@@ -6,5 +6,8 @@ public record TransitionDto(
         Long toStepId,
         String toStepName,
         String label,
-        int orderIndex
+        int orderIndex,
+        Long groupId,
+        int groupOrderIndex,
+        Long coFireGroupId
 ) {}

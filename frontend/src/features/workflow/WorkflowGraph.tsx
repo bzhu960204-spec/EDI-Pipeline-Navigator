@@ -16,6 +16,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { WorkflowPhase, WorkflowStep } from '../../api/workflow';
+import { flagMeta } from './stepFlag';
 
 interface WorkflowGraphProps {
   tree: WorkflowStep[];
@@ -71,6 +72,8 @@ interface StepNodeData extends Record<string, unknown> {
   isTerminal: boolean;
   isDecision: boolean;
   dimmed: boolean;
+  flagColor?: string;
+  flagLabel?: string;
 }
 
 function StepNode({ data, selected }: NodeProps) {
@@ -114,6 +117,19 @@ function StepNode({ data, selected }: NodeProps) {
           </span>
         )}
         <span style={{ fontWeight: 500, lineHeight: 1.2 }}>{d.name}</span>
+        {d.flagColor && (
+          <span
+            title={d.flagLabel}
+            style={{
+              marginLeft: 'auto',
+              flex: '0 0 auto',
+              width: 9,
+              height: 9,
+              borderRadius: 9,
+              background: d.flagColor,
+            }}
+          />
+        )}
       </div>
       {d.roleName && <div style={{ fontSize: 10, opacity: 0.65, marginTop: 2 }}>{d.roleName}</div>}
     </div>
@@ -277,6 +293,7 @@ function buildNodes(steps: WorkflowStep[], model: GraphModel, entryStepId?: numb
   const backIds = new Set(model.edges.filter((e) => e.isBack).map((e) => e.transitionId));
   return steps.map((s) => {
     const forwardOut = s.transitions.filter((t) => !backIds.has(t.id));
+    const flag = flagMeta(s.flag);
     return {
       id: String(s.id),
       type: 'step',
@@ -290,6 +307,8 @@ function buildNodes(steps: WorkflowStep[], model: GraphModel, entryStepId?: numb
         isTerminal: s.transitions.length === 0,
         isDecision: forwardOut.length > 1,
         dimmed: false,
+        flagColor: flag?.color,
+        flagLabel: flag ? `标记：${flag.label}` : undefined,
       } satisfies StepNodeData,
       deletable: false,
       connectable: false,

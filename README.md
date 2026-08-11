@@ -124,6 +124,8 @@ exported file re-imports cleanly. Unknown fields are ignored, so older exports s
 | `steps[].lineageKey` | | Cross-version identity (UUID); emitted by Export, auto-generated if omitted |
 | `steps[].children[]` | | Nested child steps (same shape) |
 | `transitions[]` | | Branching edges; `from`/`to` are step `ref`s, `label` is the condition |
+| `transitions[].label` | | Condition/branch text. Edges from the **same** `from` sharing a `label` start **together** (parallel AND fan-out); a different `label` is an alternative branch (decision / OR) |
+| `transitions[].coFireGroup` | | Tag shared by 2+ edges that all point to the **same** target; they must all fire before that target starts (AND join) |
 
 ### Template
 
@@ -149,11 +151,19 @@ exported file re-imports cleanly. Unknown fields are ignored, so older exports s
       ]
     },
     { "ref": "parse",  "name": "Parse segments",  "roles": ["EDI Developer"], "phase": "process" },
-    { "ref": "reject", "name": "Reject & notify", "role": "QA" }
+    { "ref": "reject", "name": "Reject & notify", "role": "QA" },
+    { "ref": "enrich", "name": "Enrich data",   "phase": "process" },
+    { "ref": "archive", "name": "Archive",       "phase": "process" }
   ],
   "transitions": [
+    // one condition opens several steps: "On valid" starts parse AND enrich together (parallel)
     { "from": "validate", "to": "parse",  "label": "On valid" },
-    { "from": "validate", "to": "reject", "label": "On error" }
+    { "from": "validate", "to": "enrich", "label": "On valid" },
+    // a different label on the same "from" is an alternative branch (decision / OR)
+    { "from": "validate", "to": "reject", "label": "On error" },
+    // co-fire join: "archive" starts only after BOTH parse and enrich have fired
+    { "from": "parse",  "to": "archive", "coFireGroup": "ready" },
+    { "from": "enrich", "to": "archive", "coFireGroup": "ready" }
   ]
 }
 ```

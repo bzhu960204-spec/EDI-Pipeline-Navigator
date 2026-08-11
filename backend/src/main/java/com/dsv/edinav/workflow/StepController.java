@@ -1,6 +1,7 @@
 package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.workflow.dto.CreateStepRequest;
+import com.dsv.edinav.workflow.dto.FlagRequest;
 import com.dsv.edinav.workflow.dto.ReviewRequest;
 import com.dsv.edinav.workflow.dto.StepReviewDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
@@ -52,6 +53,12 @@ public class StepController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteStep(@PathVariable Long id) {
         workflowService.deleteStep(id);
+    }
+
+    // Personal importance flag; not tied to ADMIN and never part of import/export.
+    @PutMapping("/steps/{id}/flag")
+    public WorkflowStepDto setStepFlag(@PathVariable Long id, @Valid @RequestBody FlagRequest request) {
+        return workflowService.setStepFlag(id, request == null ? null : request.level());
     }
 
     @PostMapping("/steps/{id}/reviews")

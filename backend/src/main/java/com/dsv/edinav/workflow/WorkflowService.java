@@ -3,12 +3,15 @@ package com.dsv.edinav.workflow;
 import com.dsv.edinav.common.ApiException;
 import com.dsv.edinav.artifact.ArtifactRepository;
 import com.dsv.edinav.workflow.dto.BusinessRoleDto;
+import com.dsv.edinav.workflow.dto.CoFireGroupRequest;
 import com.dsv.edinav.workflow.dto.CreateStepRequest;
+import com.dsv.edinav.workflow.dto.CreateTransitionGroupRequest;
 import com.dsv.edinav.workflow.dto.CreateTransitionRequest;
 import com.dsv.edinav.workflow.dto.ReviewRequest;
 import com.dsv.edinav.workflow.dto.StepReviewDto;
 import com.dsv.edinav.workflow.dto.TransitionDto;
 import com.dsv.edinav.workflow.dto.UpdateStepRequest;
+import com.dsv.edinav.workflow.dto.UpdateTransitionGroupRequest;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
@@ -20,6 +23,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -35,28 +39,40 @@ public class WorkflowService {
     private final WorkflowRepository workflowRepository;
     private final WorkflowStepRepository stepRepository;
     private final WorkflowTransitionRepository transitionRepository;
+    private final TransitionGroupRepository transitionGroupRepository;
+    private final TransitionCoFireGroupRepository coFireGroupRepository;
     private final BusinessRoleRepository roleRepository;
     private final WorkflowPhaseRepository phaseRepository;
     private final WorkflowFolderRepository folderRepository;
     private final ArtifactRepository artifactRepository;
     private final StepReviewRepository reviewRepository;
+    private final StepFlagRepository flagRepository;
+
+    /** Personal importance levels a step may be flagged with; anything else is rejected. */
+    private static final Set<String> ALLOWED_FLAG_LEVELS = Set.of("critical", "important", "review-later");
 
     public WorkflowService(WorkflowRepository workflowRepository,
                            WorkflowStepRepository stepRepository,
                            WorkflowTransitionRepository transitionRepository,
+                           TransitionGroupRepository transitionGroupRepository,
+                           TransitionCoFireGroupRepository coFireGroupRepository,
                            BusinessRoleRepository roleRepository,
                            WorkflowPhaseRepository phaseRepository,
                            WorkflowFolderRepository folderRepository,
                            ArtifactRepository artifactRepository,
-                           StepReviewRepository reviewRepository) {
+                           StepReviewRepository reviewRepository,
+                           StepFlagRepository flagRepository) {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
         this.transitionRepository = transitionRepository;
+        this.transitionGroupRepository = transitionGroupRepository;
+        this.coFireGroupRepository = coFireGroupRepository;
         this.roleRepository = roleRepository;
         this.phaseRepository = phaseRepository;
         this.folderRepository = folderRepository;
         this.artifactRepository = artifactRepository;
         this.reviewRepository = reviewRepository;
+        this.flagRepository = flagRepository;
     }
 
     // ---------------- Workflows (containers) ----------------
@@ -156,10 +172,16 @@ public class WorkflowService {
             }
         }
         List<Long> stepIds = steps.stream().map(WorkflowStep::getId).toList();
-        transitionRepository.findAll().stream()
+        List<WorkflowTransition> touching = transitionRepository.findAll().stream()
                 .filter(t -> stepIds.contains(t.getFromStepId()) || stepIds.contains(t.getToStepId()))
-                .forEach(transitionRepository::delete);
+                .toList();
+        List<Long> affectedCoFire = touching.stream().map(WorkflowTransition::getCoFireGroupId)
+                .filter(Objects::nonNull).distinct().toList();
+        transitionRepository.deleteAll(touching);
+        transitionGroupRepository.deleteByFromStepIdIn(stepIds);
+        affectedCoFire.forEach(this::dissolveCoFireIfSmall);
         deleteReviewsFor(stepIds);
+        flagRepository.deleteByWorkflowId(id);
         phaseRepository.deleteAll(phaseRepository.findByWorkflowIdOrderByOrderIndexAsc(id));
         stepRepository.deleteAll(steps);
         workflowRepository.deleteById(id);
@@ -273,8 +295,8 @@ public class WorkflowService {
                 .filter(t -> stepIds.contains(t.getFromStepId()))
                 .collect(Collectors.groupingBy(WorkflowTransition::getFromStepId));
 
-        return WorkflowStepAssembler.buildChildren(0L, byParent, byFrom, roles, phases,
-                loadReviews(stepIds), stepNames);
+        return WorkflowStepAssembler.buildChildren(0L, byParent, byFrom, loadGroups(), roles, phases,
+                loadReviews(stepIds), loadFlags(steps), stepNames);
     }
 
     /** Flat forest of every step across all current-version workflows; used by dashboards and pickers. */
@@ -295,8 +317,8 @@ public class WorkflowService {
                 .collect(Collectors.toMap(WorkflowStep::getId, WorkflowStep::getName));
         Map<Long, List<WorkflowTransition>> byFrom = transitionRepository.findAll().stream()
                 .collect(Collectors.groupingBy(WorkflowTransition::getFromStepId));
-        return WorkflowStepAssembler.buildChildren(0L, byParent, byFrom, roles, phases,
-                loadReviews(stepNames.keySet()), stepNames);
+        return WorkflowStepAssembler.buildChildren(0L, byParent, byFrom, loadGroups(), roles, phases,
+                loadReviews(stepNames.keySet()), loadFlags(steps), stepNames);
     }
 
     // ---------------- Steps ----------------
@@ -350,10 +372,18 @@ public class WorkflowService {
             throw new ApiException(HttpStatus.NOT_FOUND, "Step not found");
         }
         List<Long> toDelete = collectSubtreeIds(id);
-        // Remove any transitions that touch a deleted step (as source or target).
-        transitionRepository.findAll().stream()
+        // Remove any transitions that touch a deleted step (as source or target), then prune orphaned groups.
+        List<WorkflowTransition> touching = transitionRepository.findAll().stream()
                 .filter(t -> toDelete.contains(t.getFromStepId()) || toDelete.contains(t.getToStepId()))
-                .forEach(transitionRepository::delete);
+                .toList();
+        List<Long> affectedGroups = touching.stream().map(WorkflowTransition::getGroupId)
+                .filter(gid -> gid != null).distinct().toList();
+        List<Long> affectedCoFire = touching.stream().map(WorkflowTransition::getCoFireGroupId)
+                .filter(Objects::nonNull).distinct().toList();
+        transitionRepository.deleteAll(touching);
+        transitionGroupRepository.deleteByFromStepIdIn(toDelete);
+        affectedGroups.forEach(this::deleteGroupIfEmpty);
+        affectedCoFire.forEach(this::dissolveCoFireIfSmall);
         deleteReviewsFor(toDelete);
         stepRepository.deleteAllById(toDelete);
     }
@@ -417,6 +447,52 @@ public class WorkflowService {
         }
     }
 
+    /** Maps each given step's id to its personal flag level (if any), resolved by (workflowId, lineageKey). */
+    private Map<Long, String> loadFlags(Collection<WorkflowStep> steps) {
+        if (steps.isEmpty()) {
+            return Map.of();
+        }
+        Set<Long> workflowIds = steps.stream().map(WorkflowStep::getWorkflowId).collect(Collectors.toSet());
+        Map<String, String> byKey = flagRepository.findByWorkflowIdIn(workflowIds).stream()
+                .collect(Collectors.toMap(f -> flagKey(f.getWorkflowId(), f.getLineageKey()),
+                        StepFlag::getLevel, (a, b) -> a));
+        Map<Long, String> result = new HashMap<>();
+        for (WorkflowStep step : steps) {
+            String level = byKey.get(flagKey(step.getWorkflowId(), step.getLineageKey()));
+            if (level != null) {
+                result.put(step.getId(), level);
+            }
+        }
+        return result;
+    }
+
+    private static String flagKey(Long workflowId, String lineageKey) {
+        return workflowId + "|" + lineageKey;
+    }
+
+    /** Sets or clears a step's personal importance flag; a null/blank level removes it. */
+    @Transactional
+    public WorkflowStepDto setStepFlag(Long stepId, String level) {
+        WorkflowStep step = stepRepository.findById(stepId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Step not found"));
+        String normalized = level == null ? null : level.trim();
+        if (normalized == null || normalized.isEmpty()) {
+            flagRepository.deleteByWorkflowIdAndLineageKey(step.getWorkflowId(), step.getLineageKey());
+        } else {
+            if (!ALLOWED_FLAG_LEVELS.contains(normalized)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Unknown flag level: " + normalized);
+            }
+            StepFlag flag = flagRepository
+                    .findByWorkflowIdAndLineageKey(step.getWorkflowId(), step.getLineageKey())
+                    .orElseGet(StepFlag::new);
+            flag.setWorkflowId(step.getWorkflowId());
+            flag.setLineageKey(step.getLineageKey());
+            flag.setLevel(normalized);
+            flagRepository.save(flag);
+        }
+        return getTreeNode(stepId);
+    }
+
     // ---------------- Transitions (branching) ----------------
 
     @Transactional
@@ -431,23 +507,236 @@ public class WorkflowService {
         if (transitionRepository.existsByFromStepIdAndToStepId(from.getId(), to.getId())) {
             throw new ApiException(HttpStatus.CONFLICT, "Transition already exists");
         }
+        TransitionGroup group = findOrCreateGroup(from.getId(), request.label());
         WorkflowTransition transition = new WorkflowTransition();
+        transition.setGroupId(group.getId());
         transition.setFromStepId(from.getId());
         transition.setToStepId(to.getId());
-        transition.setLabel(request.label());
-        int order = transitionRepository.findByFromStepIdOrderByOrderIndexAsc(from.getId()).size();
-        transition.setOrderIndex(order);
+        transition.setOrderIndex(transitionRepository.findByGroupIdOrderByOrderIndexAsc(group.getId()).size());
         transitionRepository.save(transition);
         return new TransitionDto(transition.getId(), from.getId(), to.getId(), to.getName(),
-                transition.getLabel(), transition.getOrderIndex());
+                group.getLabel(), transition.getOrderIndex(), group.getId(), group.getOrderIndex(),
+                transition.getCoFireGroupId());
     }
 
     @Transactional
     public void deleteTransition(Long id) {
-        if (!transitionRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Transition not found");
+        WorkflowTransition transition = transitionRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Transition not found"));
+        Long groupId = transition.getGroupId();
+        Long coFireGroupId = transition.getCoFireGroupId();
+        transitionRepository.delete(transition);
+        deleteGroupIfEmpty(groupId);
+        dissolveCoFireIfSmall(coFireGroupId);
+    }
+
+    /** Creates a new condition group on {@code fromStepId} whose targets all start together (AND fan-out). */
+    @Transactional
+    public List<TransitionDto> createTransitionGroup(CreateTransitionGroupRequest request) {
+        if (!stepRepository.existsById(request.fromStepId())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Source step not found");
         }
-        transitionRepository.deleteById(id);
+        TransitionGroup group = new TransitionGroup();
+        group.setFromStepId(request.fromStepId());
+        group.setOrderIndex(transitionGroupRepository.findByFromStepIdOrderByOrderIndexAsc(request.fromStepId()).size());
+        transitionGroupRepository.save(group);
+        return syncGroupTargets(group, request.toStepIds(), request.label());
+    }
+
+    /** Renames one condition group and syncs its target steps to exactly {@code toStepIds}. Only this group is touched. */
+    @Transactional
+    public List<TransitionDto> updateTransitionGroup(Long groupId, UpdateTransitionGroupRequest request) {
+        TransitionGroup group = transitionGroupRepository.findById(groupId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Condition group not found"));
+        return syncGroupTargets(group, request.toStepIds(), request.label());
+    }
+
+    /** Syncs {@code group}'s edges to exactly {@code toStepIds}, setting its label. Only this group is touched. */
+    private List<TransitionDto> syncGroupTargets(TransitionGroup group, List<Long> toStepIds, String rawLabel) {
+        Long groupId = group.getId();
+        Long fromStepId = group.getFromStepId();
+
+        List<Long> desired = toStepIds.stream().distinct().toList();
+        if (desired.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "A condition must keep at least one target step");
+        }
+
+        List<WorkflowTransition> current = transitionRepository.findByGroupIdOrderByOrderIndexAsc(groupId);
+        Set<Long> currentTargets = current.stream().map(WorkflowTransition::getToStepId).collect(Collectors.toSet());
+        Set<Long> desiredSet = new HashSet<>(desired);
+
+        Map<Long, WorkflowStep> targets = new HashMap<>();
+        for (Long toId : desired) {
+            if (toId.equals(fromStepId)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "A step cannot transition to itself");
+            }
+            WorkflowStep to = stepRepository.findById(toId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Target step not found"));
+            // A new target must not already exist on another condition of the same source step.
+            if (!currentTargets.contains(toId) && transitionRepository.existsByFromStepIdAndToStepId(fromStepId, toId)) {
+                throw new ApiException(HttpStatus.CONFLICT, "Transition to \"" + to.getName() + "\" already exists");
+            }
+            targets.put(toId, to);
+        }
+
+        current.stream()
+                .filter(t -> !desiredSet.contains(t.getToStepId()))
+                .forEach(transitionRepository::delete);
+
+        Map<Long, WorkflowTransition> keptByTarget = current.stream()
+                .filter(t -> desiredSet.contains(t.getToStepId()))
+                .collect(Collectors.toMap(WorkflowTransition::getToStepId, Function.identity()));
+
+        String label = rawLabel == null || rawLabel.isBlank() ? null : rawLabel.trim();
+        group.setLabel(label);
+        transitionGroupRepository.save(group);
+
+        List<TransitionDto> result = new ArrayList<>();
+        int index = 0;
+        for (Long toId : desired) {
+            WorkflowTransition transition = keptByTarget.get(toId);
+            if (transition == null) {
+                transition = new WorkflowTransition();
+                transition.setGroupId(groupId);
+                transition.setFromStepId(fromStepId);
+                transition.setToStepId(toId);
+            }
+            transition.setOrderIndex(index++);
+            transitionRepository.save(transition);
+            result.add(new TransitionDto(transition.getId(), fromStepId, toId, targets.get(toId).getName(),
+                    label, transition.getOrderIndex(), groupId, group.getOrderIndex(),
+                    transition.getCoFireGroupId()));
+        }
+        return result;
+    }
+
+    /** Returns the source step's group for {@code label} (null/blank = the unconditional group), creating it if absent. */
+    private TransitionGroup findOrCreateGroup(Long fromStepId, String rawLabel) {
+        String label = rawLabel == null || rawLabel.isBlank() ? null : rawLabel.trim();
+        List<TransitionGroup> matches = transitionGroupRepository.findMatching(fromStepId, label);
+        if (!matches.isEmpty()) {
+            return matches.get(0);
+        }
+        TransitionGroup group = new TransitionGroup();
+        group.setFromStepId(fromStepId);
+        group.setLabel(label);
+        group.setOrderIndex(transitionGroupRepository.findByFromStepIdOrderByOrderIndexAsc(fromStepId).size());
+        return transitionGroupRepository.save(group);
+    }
+
+    private void deleteGroupIfEmpty(Long groupId) {
+        if (groupId != null && !transitionRepository.existsByGroupId(groupId)) {
+            transitionGroupRepository.deleteById(groupId);
+        }
+    }
+
+    // ---------------- Co-fire groups (synchronizing arrivals) ----------------
+
+    /** Groups >=2 transitions sharing a target into a new co-fire group; they must all fire before it starts. */
+    @Transactional
+    public List<TransitionDto> createCoFireGroup(CoFireGroupRequest request) {
+        List<WorkflowTransition> members = loadCoFireMembers(request.transitionIds());
+        Long toStepId = members.get(0).getToStepId();
+        TransitionCoFireGroup group = new TransitionCoFireGroup();
+        group.setToStepId(toStepId);
+        group.setOrderIndex(coFireGroupRepository.findByToStepIdOrderByOrderIndexAsc(toStepId).size());
+        coFireGroupRepository.save(group);
+        return assignCoFireMembers(group, members);
+    }
+
+    /** Sets a co-fire group's membership to exactly {@code transitionIds}; released edges fire independently. */
+    @Transactional
+    public List<TransitionDto> updateCoFireGroup(Long groupId, CoFireGroupRequest request) {
+        TransitionCoFireGroup group = coFireGroupRepository.findById(groupId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Co-fire group not found"));
+        List<WorkflowTransition> members = loadCoFireMembers(request.transitionIds());
+        if (!members.get(0).getToStepId().equals(group.getToStepId())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Co-fire members must target this group's step");
+        }
+        Set<Long> keep = members.stream().map(WorkflowTransition::getId).collect(Collectors.toSet());
+        transitionRepository.findByCoFireGroupId(groupId).stream()
+                .filter(t -> !keep.contains(t.getId()))
+                .forEach(t -> {
+                    t.setCoFireGroupId(null);
+                    transitionRepository.save(t);
+                });
+        return assignCoFireMembers(group, members);
+    }
+
+    /** Dissolves a co-fire group; its member edges become independent arrivals again. */
+    @Transactional
+    public void deleteCoFireGroup(Long groupId) {
+        if (!coFireGroupRepository.existsById(groupId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Co-fire group not found");
+        }
+        transitionRepository.findByCoFireGroupId(groupId).forEach(t -> {
+            t.setCoFireGroupId(null);
+            transitionRepository.save(t);
+        });
+        coFireGroupRepository.deleteById(groupId);
+    }
+
+    private List<WorkflowTransition> loadCoFireMembers(List<Long> transitionIds) {
+        List<Long> ids = transitionIds == null ? List.of() : transitionIds.stream().distinct().toList();
+        if (ids.size() < 2) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "A co-fire group needs at least two transitions");
+        }
+        List<WorkflowTransition> members = new ArrayList<>();
+        Long toStepId = null;
+        for (Long id : ids) {
+            WorkflowTransition t = transitionRepository.findById(id)
+                    .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Transition not found"));
+            if (toStepId == null) {
+                toStepId = t.getToStepId();
+            } else if (!toStepId.equals(t.getToStepId())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Co-fire transitions must share the same target step");
+            }
+            members.add(t);
+        }
+        return members;
+    }
+
+    private List<TransitionDto> assignCoFireMembers(TransitionCoFireGroup group, List<WorkflowTransition> members) {
+        List<TransitionDto> result = new ArrayList<>();
+        for (WorkflowTransition t : members) {
+            Long previous = t.getCoFireGroupId();
+            t.setCoFireGroupId(group.getId());
+            transitionRepository.save(t);
+            if (previous != null && !previous.equals(group.getId())) {
+                dissolveCoFireIfSmall(previous);
+            }
+            result.add(toTransitionDto(t));
+        }
+        return result;
+    }
+
+    /** Removes a co-fire group once it can no longer synchronize anything (fewer than two members). */
+    private void dissolveCoFireIfSmall(Long groupId) {
+        if (groupId == null) {
+            return;
+        }
+        List<WorkflowTransition> members = transitionRepository.findByCoFireGroupId(groupId);
+        if (members.size() < 2) {
+            members.forEach(t -> {
+                t.setCoFireGroupId(null);
+                transitionRepository.save(t);
+            });
+            coFireGroupRepository.deleteById(groupId);
+        }
+    }
+
+    private TransitionDto toTransitionDto(WorkflowTransition t) {
+        TransitionGroup g = t.getGroupId() == null ? null
+                : transitionGroupRepository.findById(t.getGroupId()).orElse(null);
+        String toName = stepRepository.findById(t.getToStepId()).map(WorkflowStep::getName).orElse(null);
+        return new TransitionDto(t.getId(), t.getFromStepId(), t.getToStepId(), toName,
+                g == null ? null : g.getLabel(), t.getOrderIndex(),
+                t.getGroupId(), g == null ? 0 : g.getOrderIndex(), t.getCoFireGroupId());
+    }
+
+    private Map<Long, TransitionGroup> loadGroups() {
+        return transitionGroupRepository.findAll().stream()
+                .collect(Collectors.toMap(TransitionGroup::getId, Function.identity()));
     }
 
     // ---------------- Role-filtered view ----------------
@@ -463,8 +752,11 @@ public class WorkflowService {
                 .collect(Collectors.toMap(WorkflowPhase::getId, Function.identity()));
         Set<Long> currentIds = workflowRepository.findByIsCurrentTrueOrderByOrderIndexAsc().stream()
                 .map(Workflow::getId).collect(Collectors.toSet());
-        return stepRepository.findByBusinessRoleIdOrderByOrderIndexAsc(roleId).stream()
+        List<WorkflowStep> steps = stepRepository.findByBusinessRoleIdOrderByOrderIndexAsc(roleId).stream()
                 .filter(step -> currentIds.contains(step.getWorkflowId()))
+                .toList();
+        Map<Long, String> flags = loadFlags(steps);
+        return steps.stream()
                 .map(step -> {
                     List<BusinessRoleDto> roleDtos = step.getBusinessRoleIds().stream()
                             .map(roles::get)
@@ -474,7 +766,8 @@ public class WorkflowService {
                     WorkflowPhase phase = step.getPhaseId() == null ? null : phases.get(step.getPhaseId());
                     return new WorkflowStepDto(step.getId(), step.getWorkflowId(), step.getParentId(), step.getOrderIndex(),
                             step.getName(), step.getDescription(), step.getNotes(), step.getLineageKey(), roleDtos,
-                            phase == null ? null : WorkflowMapper.toPhaseDto(phase), List.of(), List.of(), List.of());
+                            phase == null ? null : WorkflowMapper.toPhaseDto(phase), List.of(), List.of(), List.of(),
+                            flags.get(step.getId()));
                 })
                 .toList();
     }
@@ -494,8 +787,8 @@ public class WorkflowService {
                 .collect(Collectors.toMap(WorkflowStep::getId, WorkflowStep::getName));
         Map<Long, List<WorkflowTransition>> byFrom = transitionRepository.findAll().stream()
                 .collect(Collectors.groupingBy(WorkflowTransition::getFromStepId));
-        return WorkflowStepAssembler.toStepDto(step, byParent, byFrom, roles, phases,
-                loadReviews(List.of(step.getId())), stepNames);
+        return WorkflowStepAssembler.toStepDto(step, byParent, byFrom, loadGroups(), roles, phases,
+                loadReviews(List.of(step.getId())), loadFlags(List.of(step)), stepNames);
     }
 
     private void validateRole(Long roleId) {

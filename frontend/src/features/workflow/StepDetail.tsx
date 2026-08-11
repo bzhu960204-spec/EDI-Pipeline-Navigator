@@ -7,11 +7,15 @@ import {
   ArrowRightOutlined,
   DeleteOutlined,
   EditOutlined,
+  FlagOutlined,
+  MergeCellsOutlined,
   MoreOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import type { StepReview, Transition, WorkflowStep } from '../../api/workflow';
+import type { StepFlagLevel, StepReview, Transition, WorkflowStep } from '../../api/workflow';
 import type { IncomingRef } from './workflowUtils';
+import type { EditTransitionGroup } from './TransitionFormModal';
+import { STEP_FLAG_META, flagMeta } from './stepFlag';
 
 interface StepDetailProps {
   step: WorkflowStep | null;
@@ -25,10 +29,13 @@ interface StepDetailProps {
   onAddTransition: () => void;
   onDelete: () => void;
   onDeleteTransition: (t: Transition) => void;
+  onEditGroup: (group: EditTransitionGroup) => void;
+  onCoFire: (t: Transition) => void;
   onNavigate: (stepId: number) => void;
   onAddReview: (content: string) => void;
   onUpdateReview: (id: number, content: string) => void;
   onDeleteReview: (id: number) => void;
+  onSetFlag: (level: StepFlagLevel | null) => void;
 }
 
 export function StepDetail({
@@ -43,10 +50,13 @@ export function StepDetail({
   onAddTransition,
   onDelete,
   onDeleteTransition,
+  onEditGroup,
+  onCoFire,
   onNavigate,
   onAddReview,
   onUpdateReview,
   onDeleteReview,
+  onSetFlag,
 }: Readonly<StepDetailProps>) {
   const { modal } = AntApp.useApp();
   const [mainTab, setMainTab] = useState<string>(
@@ -137,6 +147,37 @@ export function StepDetail({
     },
   ];
 
+  const currentFlag = flagMeta(step.flag);
+  const flagItems: MenuProps['items'] = [
+    ...STEP_FLAG_META.map((m) => ({
+      key: m.level,
+      label: (
+        <Space size={6}>
+          <span style={{ width: 8, height: 8, borderRadius: 8, background: m.color, display: 'inline-block' }} />
+          {m.label}
+        </Space>
+      ),
+      onClick: () => onSetFlag(m.level),
+    })),
+    { type: 'divider' as const },
+    {
+      key: 'clear',
+      label: 'Clear Flag',
+      disabled: !currentFlag,
+      onClick: () => onSetFlag(null),
+    },
+  ];
+
+  const nextGroups: { groupId: number | null; label?: string | null; items: { t: Transition; index: number }[] }[] = [];
+  step.transitions.forEach((t, index) => {
+    let group = nextGroups.find((g) => g.groupId === t.groupId);
+    if (!group) {
+      group = { groupId: t.groupId, label: t.label, items: [] };
+      nextGroups.push(group);
+    }
+    group.items.push({ t, index });
+  });
+
   const tabItems: TabsProps['items'] = [
     {
       key: 'next',
@@ -144,33 +185,83 @@ export function StepDetail({
         <Space size={4}>
           <span>Next steps</span>
           <Tag>{step.transitions.length}</Tag>
-          {step.transitions.length > 1 && <Tag color="blue">branching</Tag>}
+          {nextGroups.length > 1 && <Tag color="blue">decision · one</Tag>}
+          {nextGroups.some((g) => g.items.length > 1) && <Tag color="green">parallel · all</Tag>}
         </Space>
       ),
       children:
         step.transitions.length === 0 ? (
           <Typography.Text type="secondary">No outgoing transitions (end of flow).</Typography.Text>
         ) : (
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {step.transitions.map((t, i) => (
-              <Space
-                key={t.id}
-                style={{ justifyContent: 'space-between', width: '100%', padding: '2px 6px', ...highlightStyle(pickerDirection === 'next' && pickerIndex === i) }}
-              >
-                <Space>
-                  {t.label && <Tag>{t.label}</Tag>}
-                  <ArrowRightOutlined />
-                  <Button type="link" style={{ padding: 0 }} onClick={() => onNavigate(t.toStepId)}>
-                    {t.toStepName}
-                  </Button>
-                </Space>
-                {isAdmin && (
-                  <Popconfirm title="Remove this transition?" onConfirm={() => onDeleteTransition(t)}>
-                    <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                  </Popconfirm>
-                )}
-              </Space>
-            ))}
+          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            {nextGroups.map((g) => {
+              const hasMeta = (g.label != null && g.label !== '') || g.items.length > 1;
+              const editable = isAdmin && g.groupId != null;
+              const showHeader = hasMeta || editable;
+              return (
+                <div key={g.groupId ?? 'none'} style={{ width: '100%' }}>
+                  {showHeader && (
+                    <Space size={4} style={{ marginBottom: 2, width: '100%', justifyContent: 'space-between' }}>
+                      <Space size={4}>
+                        {g.label ? (
+                          <Tag>{g.label}</Tag>
+                        ) : (
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            Always
+                          </Typography.Text>
+                        )}
+                        {g.items.length > 1 && <Tag color="green">all</Tag>}
+                      </Space>
+                      {editable && (
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={() =>
+                            onEditGroup({
+                              groupId: g.groupId as number,
+                              label: g.label,
+                              toStepIds: g.items.map((i) => i.t.toStepId),
+                            })
+                          }
+                        />
+                      )}
+                    </Space>
+                  )}
+                  <Space direction="vertical" style={{ width: '100%', paddingLeft: showHeader ? 10 : 0 }}>
+                    {g.items.map(({ t, index }) => (
+                      <Space
+                        key={t.id}
+                        style={{ justifyContent: 'space-between', width: '100%', padding: '2px 6px', ...highlightStyle(pickerDirection === 'next' && pickerIndex === index) }}
+                      >
+                        <Space>
+                          <ArrowRightOutlined />
+                          <Button type="link" style={{ padding: 0 }} onClick={() => onNavigate(t.toStepId)}>
+                            {t.toStepName}
+                          </Button>
+                          {t.coFireGroupId != null && <Tag color="volcano">co-fire</Tag>}
+                        </Space>
+                        {isAdmin && (
+                          <Space size={0}>
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<MergeCellsOutlined />}
+                              title="Co-fire with other arrivals into this target"
+                              style={t.coFireGroupId != null ? { color: '#d4380d' } : undefined}
+                              onClick={() => onCoFire(t)}
+                            />
+                            <Popconfirm title="Remove this transition?" onConfirm={() => onDeleteTransition(t)}>
+                              <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                            </Popconfirm>
+                          </Space>
+                        )}
+                      </Space>
+                    ))}
+                  </Space>
+                </div>
+              );
+            })}
           </Space>
         ),
     },
@@ -180,7 +271,6 @@ export function StepDetail({
         <Space size={4}>
           <span>Previous steps</span>
           <Tag>{incoming.length}</Tag>
-          {incoming.length > 1 && <Tag color="purple">merge</Tag>}
         </Space>
       ),
       children:
@@ -197,6 +287,7 @@ export function StepDetail({
               >
                 <Space>
                   {inc.transition.label && <Tag>{inc.transition.label}</Tag>}
+                  {inc.transition.coFireGroupId != null && <Tag color="volcano">co-fire</Tag>}
                   {inc.isRollback && <Tag color="red">rollback</Tag>}
                   {inc.isSelfLoop && <Tag color="orange">self-loop</Tag>}
                   <ArrowLeftOutlined />
@@ -217,6 +308,11 @@ export function StepDetail({
         <Space>
           <span>{step.name}</span>
           {isEntry && <Tag color="green">entry</Tag>}
+          {currentFlag && (
+            <Tag color={currentFlag.tagColor} icon={<FlagOutlined />}>
+              {currentFlag.label}
+            </Tag>
+          )}
           {step.phase && <Tag color={step.phase.color ?? undefined}>{step.phase.name}</Tag>}
           {step.businessRoles.map((r) => (
             <Tag key={r.id} color={r.color ?? undefined}>
@@ -226,11 +322,20 @@ export function StepDetail({
         </Space>
       }
       extra={
-        isAdmin && (
-          <Dropdown menu={{ items: actionItems }} trigger={['click']}>
-            <Button size="small" icon={<MoreOutlined />} />
+        <Space>
+          <Dropdown menu={{ items: flagItems }} trigger={['click']}>
+            <Button
+              size="small"
+              icon={<FlagOutlined style={{ color: currentFlag?.color }} />}
+              title="个人标记"
+            />
           </Dropdown>
-        )
+          {isAdmin && (
+            <Dropdown menu={{ items: actionItems }} trigger={['click']}>
+              <Button size="small" icon={<MoreOutlined />} />
+            </Dropdown>
+          )}
+        </Space>
       }
     >
       <Tabs

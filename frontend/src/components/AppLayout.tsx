@@ -8,6 +8,7 @@ import {
   UserOutlined,
   PartitionOutlined,
   TeamOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, isAdmin } from '../features/auth/authStore';
@@ -23,6 +24,7 @@ export function AppLayout() {
   const selectedKey = useMemo(() => {
     if (location.pathname.startsWith('/workflow/roles')) return '/workflow/roles';
     if (location.pathname.startsWith('/workflow')) return '/workflow';
+    if (location.pathname.startsWith('/schema-templates')) return '/schema-templates';
     if (location.pathname.startsWith('/artifacts')) return '/artifacts';
     return '/';
   }, [location.pathname]);
@@ -36,6 +38,7 @@ export function AppLayout() {
       children: [
         { key: '/workflow', icon: <PartitionOutlined />, label: 'Workflows' },
         { key: '/workflow/roles', icon: <TeamOutlined />, label: 'Roles' },
+        { key: '/schema-templates', icon: <FileTextOutlined />, label: 'Schema Templates' },
       ],
     },
     { key: '/artifacts', icon: <FolderOpenOutlined />, label: 'Artifact Manager' },

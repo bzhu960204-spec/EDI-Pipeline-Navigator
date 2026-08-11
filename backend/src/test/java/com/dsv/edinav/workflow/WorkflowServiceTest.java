@@ -31,11 +31,14 @@ class WorkflowServiceTest {
     @Autowired private WorkflowRepository workflowRepository;
     @Autowired private WorkflowStepRepository stepRepository;
     @Autowired private WorkflowTransitionRepository transitionRepository;
+    @Autowired private TransitionGroupRepository transitionGroupRepository;
+    @Autowired private TransitionCoFireGroupRepository coFireGroupRepository;
     @Autowired private BusinessRoleRepository roleRepository;
     @Autowired private WorkflowPhaseRepository phaseRepository;
     @Autowired private WorkflowFolderRepository folderRepository;
     @Autowired private ArtifactRepository artifactRepository;
     @Autowired private StepReviewRepository reviewRepository;
+    @Autowired private StepFlagRepository flagRepository;
 
     private WorkflowService service;
     private WorkflowImportExportService importExport;
@@ -43,9 +46,10 @@ class WorkflowServiceTest {
     @BeforeEach
     void setUp() {
         service = new WorkflowService(workflowRepository, stepRepository, transitionRepository,
-                roleRepository, phaseRepository, folderRepository, artifactRepository, reviewRepository);
+                transitionGroupRepository, coFireGroupRepository, roleRepository, phaseRepository, folderRepository, artifactRepository,
+                reviewRepository, flagRepository);
         importExport = new WorkflowImportExportService(workflowRepository, stepRepository, transitionRepository,
-                roleRepository, phaseRepository, artifactRepository, reviewRepository, service);
+                transitionGroupRepository, coFireGroupRepository, roleRepository, phaseRepository, artifactRepository, reviewRepository, service);
     }
 
     /** A 3-step workflow: roots "Receive"(child "Log") and "Validate", edge Receive->Validate, phase "Intake". */
@@ -57,7 +61,7 @@ class WorkflowServiceTest {
                 name, "desc", "DRAFT", null, List.of("edi"),
                 List.of(new ImportPhaseNode("p1", "Intake", "#123456", 0, null)),
                 List.of(receive, validate),
-                List.of(new ImportTransition("a", "b", "next")));
+                List.of(new ImportTransition("a", "b", "next", null)));
     }
 
     private WorkflowStepDto findByName(List<WorkflowStepDto> tree, String name) {

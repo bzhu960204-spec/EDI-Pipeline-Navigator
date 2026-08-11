@@ -3,12 +3,16 @@ package com.dsv.edinav.config;
 import com.dsv.edinav.user.Role;
 import com.dsv.edinav.user.User;
 import com.dsv.edinav.user.UserRepository;
+import com.dsv.edinav.schematemplate.SchemaTemplate;
+import com.dsv.edinav.schematemplate.SchemaTemplateRepository;
 import com.dsv.edinav.template.DirTemplate;
 import com.dsv.edinav.template.DirTemplateNode;
 import com.dsv.edinav.template.DirTemplateRepository;
 import com.dsv.edinav.template.DirTemplateNodeRepository;
 import com.dsv.edinav.workflow.BusinessRole;
 import com.dsv.edinav.workflow.BusinessRoleRepository;
+import com.dsv.edinav.workflow.TransitionGroup;
+import com.dsv.edinav.workflow.TransitionGroupRepository;
 import com.dsv.edinav.workflow.Workflow;
 import com.dsv.edinav.workflow.WorkflowRepository;
 import com.dsv.edinav.workflow.WorkflowStatus;
@@ -37,8 +41,10 @@ public class DataSeeder implements CommandLineRunner {
     private final WorkflowRepository workflowRepository;
     private final WorkflowStepRepository stepRepository;
     private final WorkflowTransitionRepository transitionRepository;
+    private final TransitionGroupRepository transitionGroupRepository;
     private final DirTemplateRepository templateRepository;
     private final DirTemplateNodeRepository templateNodeRepository;
+    private final SchemaTemplateRepository schemaTemplateRepository;
 
     public DataSeeder(UserRepository userRepository,
                       PasswordEncoder passwordEncoder,
@@ -47,8 +53,10 @@ public class DataSeeder implements CommandLineRunner {
                       WorkflowRepository workflowRepository,
                       WorkflowStepRepository stepRepository,
                       WorkflowTransitionRepository transitionRepository,
+                      TransitionGroupRepository transitionGroupRepository,
                       DirTemplateRepository templateRepository,
-                      DirTemplateNodeRepository templateNodeRepository) {
+                      DirTemplateNodeRepository templateNodeRepository,
+                      SchemaTemplateRepository schemaTemplateRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.appProperties = appProperties;
@@ -56,8 +64,10 @@ public class DataSeeder implements CommandLineRunner {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
         this.transitionRepository = transitionRepository;
+        this.transitionGroupRepository = transitionGroupRepository;
         this.templateRepository = templateRepository;
         this.templateNodeRepository = templateNodeRepository;
+        this.schemaTemplateRepository = schemaTemplateRepository;
     }
 
     @Override
@@ -66,6 +76,7 @@ public class DataSeeder implements CommandLineRunner {
         seedWorkflow();
         migrateOrphanSteps();
         seedDefaultTemplate();
+        seedSchemaTemplate();
     }
 
     private void seedAdmin() {
@@ -169,12 +180,17 @@ public class DataSeeder implements CommandLineRunner {
     }
 
     private void transition(Long fromId, Long toId, String label) {
+        String normalized = label == null || label.isBlank() ? null : label.trim();
+        TransitionGroup group = new TransitionGroup();
+        group.setFromStepId(fromId);
+        group.setLabel(normalized);
+        group.setOrderIndex(transitionGroupRepository.findByFromStepIdOrderByOrderIndexAsc(fromId).size());
+        transitionGroupRepository.save(group);
         WorkflowTransition t = new WorkflowTransition();
+        t.setGroupId(group.getId());
         t.setFromStepId(fromId);
         t.setToStepId(toId);
-        t.setLabel(label);
-        int order = transitionRepository.findByFromStepIdOrderByOrderIndexAsc(fromId).size();
-        t.setOrderIndex(order);
+        t.setOrderIndex(transitionRepository.findByGroupIdOrderByOrderIndexAsc(group.getId()).size());
         transitionRepository.save(t);
     }
 
@@ -227,4 +243,61 @@ public class DataSeeder implements CommandLineRunner {
         node.setOrderIndex(order);
         return templateNodeRepository.save(node).getId();
     }
+
+    private void seedSchemaTemplate() {
+        if (schemaTemplateRepository.count() > 0) {
+            return;
+        }
+        SchemaTemplate template = new SchemaTemplate();
+        template.setName("Sub-Workflow Import Skeleton");
+        template.setDescription("The canonical JSON skeleton for POST /api/workflow/workflows/import.");
+        template.setVersion("1.0");
+        template.setVersionLabel("Initial import from README");
+        template.setContent(SUB_WORKFLOW_IMPORT_SKELETON);
+        template.setCurrent(true);
+        template.setCreatedBy(appProperties.getAdmin().getUsername());
+        SchemaTemplate saved = schemaTemplateRepository.save(template);
+        saved.setGroupId(saved.getId());
+        schemaTemplateRepository.save(saved);
+        log.info("Seeded schema template '{}' v{}", saved.getName(), saved.getVersion());
+    }
+
+    private static final String SUB_WORKFLOW_IMPORT_SKELETON = """
+            {
+              "name": "JP-MBL Import Parsing",
+              "description": "Reusable sub-workflow for parsing JP MBL import files",
+              "status": "DRAFT",             // "DRAFT" | "PUBLISHED" (defaults to DRAFT)
+              "phases": [                    // optional swimlanes; steps attach via "phase"
+                { "ref": "intake",  "name": "Intake",     "color": "#1677ff", "orderIndex": 0 },
+                { "ref": "process", "name": "Processing", "color": "#52c41a", "orderIndex": 1 }
+              ],
+              "steps": [
+                {
+                  "ref": "receive",          // unique key within this file
+                  "name": "Receive EDI file",
+                  "description": "Pick up inbound EDI from the LW mailbox",
+                  "notes": "Runs every 5 min",
+                  "roles": ["EDI Developer", "QA"],  // names, resolved/created; a step may have several
+                  "phase": "intake",         // a phase ref (optional)
+                  "children": [
+                    { "ref": "validate", "name": "Validate envelope", "roles": ["QA"], "phase": "intake" }
+                  ]
+                },
+                { "ref": "parse",  "name": "Parse segments",  "roles": ["EDI Developer"], "phase": "process" },
+                { "ref": "reject", "name": "Reject & notify", "role": "QA" },
+                { "ref": "enrich", "name": "Enrich data",   "phase": "process" },
+                { "ref": "archive", "name": "Archive",       "phase": "process" }
+              ],
+              "transitions": [
+                // one condition opens several steps: "On valid" starts parse AND enrich together (parallel)
+                { "from": "validate", "to": "parse",  "label": "On valid" },
+                { "from": "validate", "to": "enrich", "label": "On valid" },
+                // a different label on the same "from" is an alternative branch (decision / OR)
+                { "from": "validate", "to": "reject", "label": "On error" },
+                // co-fire join: "archive" starts only after BOTH parse and enrich have fired
+                { "from": "parse",  "to": "archive", "coFireGroup": "ready" },
+                { "from": "enrich", "to": "archive", "coFireGroup": "ready" }
+              ]
+            }
+            """;
 }
