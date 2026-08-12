@@ -205,37 +205,42 @@ public class DataSeeder implements CommandLineRunner {
         templateRepository.save(template);
         Long tid = template.getId();
 
-        tnode(tid, null, "DESIGN");
-        tnode(tid, null, "QA Docs");
+        tnode(tid, null, "DESIGN", "Flow design and naming-tool workbooks.");
+        tnode(tid, null, "QA Docs", "Deploy request and checklist documents.");
 
-        Long rt = tnode(tid, null, "RT");
-        tnode(tid, rt, "LW");
-        tnode(tid, rt, "SI");
+        Long rt = tnode(tid, null, "RT", "Runtime mapping configuration.");
+        tnode(tid, rt, "LW", "LiaisonWorks flow definitions (JSON).");
+        tnode(tid, rt, "SI", "System integration mapping exports.");
 
-        Long test = tnode(tid, null, "TEST");
-        tnode(tid, test, "COMP");
-        tnode(tid, test, "UAT");
-        Long unit = tnode(tid, test, "UNIT");
-        Long ib = tnode(tid, unit, "IB");
-        tnode(tid, ib, "ASN");
-        tnode(tid, ib, "SHIPMENTORDER");
-        tnode(tid, ib, "SHIPTO");
-        tnode(tid, ib, "SKU");
-        Long ob = tnode(tid, unit, "OB");
-        tnode(tid, ob, "INVENTORY BALANCE");
-        tnode(tid, ob, "RECEIPT CONFIRMATION");
+        Long test = tnode(tid, null, "TEST", "Test evidence and samples.");
+        tnode(tid, test, "COMP", "Compliance test evidence.");
+        tnode(tid, test, "UAT", "User acceptance test evidence.");
+        Long unit = tnode(tid, test, "UNIT", "Unit test message samples.");
+        Long ib = tnode(tid, unit, "IB", "Inbound message samples.");
+        tnode(tid, ib, "ASN", "Advance shipping notice samples.");
+        tnode(tid, ib, "SHIPMENTORDER", "Shipment order samples.");
+        tnode(tid, ib, "SHIPTO", "Ship-to master samples.");
+        tnode(tid, ib, "SKU", "SKU master samples.");
+        Long ob = tnode(tid, unit, "OB", "Outbound message samples.");
+        tnode(tid, ob, "INVENTORY BALANCE", "Inventory balance samples.");
+        tnode(tid, ob, "RECEIPT CONFIRMATION", "Receipt confirmation samples.");
 
-        tnode(tid, null, "XSLT");
+        tnode(tid, null, "XSLT", "XSLT transformation stylesheets.");
 
         log.info("Seeded default directory template '{}' ({} folders)",
                 template.getName(), templateNodeRepository.count());
     }
 
     private Long tnode(Long templateId, Long parentId, String name) {
+        return tnode(templateId, parentId, name, null);
+    }
+
+    private Long tnode(Long templateId, Long parentId, String name, String description) {
         DirTemplateNode node = new DirTemplateNode();
         node.setTemplateId(templateId);
         node.setParentId(parentId);
         node.setName(name);
+        node.setDescription(description);
         int order = (int) templateNodeRepository.findByTemplateIdOrderByOrderIndexAsc(templateId).stream()
                 .filter(n -> (parentId == null && n.getParentId() == null)
                         || (parentId != null && parentId.equals(n.getParentId())))

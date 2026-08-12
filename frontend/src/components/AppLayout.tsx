@@ -9,6 +9,8 @@ import {
   PartitionOutlined,
   TeamOutlined,
   FileTextOutlined,
+  UnorderedListOutlined,
+  ContainerOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, isAdmin } from '../features/auth/authStore';
@@ -25,6 +27,7 @@ export function AppLayout() {
     if (location.pathname.startsWith('/workflow/roles')) return '/workflow/roles';
     if (location.pathname.startsWith('/workflow')) return '/workflow';
     if (location.pathname.startsWith('/schema-templates')) return '/schema-templates';
+    if (location.pathname.startsWith('/artifacts/templates')) return '/artifacts/templates';
     if (location.pathname.startsWith('/artifacts')) return '/artifacts';
     return '/';
   }, [location.pathname]);
@@ -41,7 +44,15 @@ export function AppLayout() {
         { key: '/schema-templates', icon: <FileTextOutlined />, label: 'Schema Templates' },
       ],
     },
-    { key: '/artifacts', icon: <FolderOpenOutlined />, label: 'Artifact Manager' },
+    {
+      key: 'artifact',
+      icon: <FolderOpenOutlined />,
+      label: 'Artifact Manager',
+      children: [
+        { key: '/artifacts', icon: <UnorderedListOutlined />, label: 'Artifacts' },
+        { key: '/artifacts/templates', icon: <ContainerOutlined />, label: 'Directory Templates' },
+      ],
+    },
   ];
 
   const handleLogout = () => {
@@ -59,7 +70,7 @@ export function AppLayout() {
           theme="dark"
           mode="inline"
           selectedKeys={[selectedKey]}
-          defaultOpenKeys={['procedure']}
+          defaultOpenKeys={['procedure', 'artifact']}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
         />

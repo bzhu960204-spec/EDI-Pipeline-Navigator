@@ -10,6 +10,7 @@ import { RolesPage } from './features/workflow/RolesPage';
 import { SchemaTemplatesPage } from './features/schemaTemplates/SchemaTemplatesPage';
 import { ArtifactsPage } from './features/artifacts/ArtifactsPage';
 import { ArtifactDetailPage } from './features/artifacts/ArtifactDetailPage';
+import { DirectoryTemplatesPage } from './features/artifacts/DirectoryTemplatesPage';
 
 export function App() {
   return (
@@ -30,6 +31,7 @@ export function App() {
           <Route path="/workflow/roles" element={<RolesPage />} />
           <Route path="/schema-templates" element={<SchemaTemplatesPage />} />
           <Route path="/artifacts" element={<ArtifactsPage />} />
+          <Route path="/artifacts/templates" element={<DirectoryTemplatesPage />} />
           <Route path="/artifacts/:id" element={<ArtifactDetailPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

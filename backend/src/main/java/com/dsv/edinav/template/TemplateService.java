@@ -124,6 +124,7 @@ public class TemplateService {
             node.setTemplateId(templateId);
             node.setParentId(parentId);
             node.setName(input.name().trim());
+            node.setDescription(input.description());
             node.setOrderIndex(order++);
             nodeRepository.save(node);
             persistNodes(templateId, node.getId(), input.children());
@@ -141,7 +142,7 @@ public class TemplateService {
         List<TemplateNodeDto> out = new ArrayList<>();
         byParent.getOrDefault(parentKey, List.of()).stream()
                 .sorted(Comparator.comparingInt(DirTemplateNode::getOrderIndex))
-                .forEach(n -> out.add(new TemplateNodeDto(n.getId(), n.getName(), buildChildren(n.getId(), byParent))));
+                .forEach(n -> out.add(new TemplateNodeDto(n.getId(), n.getName(), n.getDescription(), buildChildren(n.getId(), byParent))));
         return out;
     }
 }
