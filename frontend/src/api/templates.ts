@@ -51,6 +51,21 @@ export async function createTemplate(payload: TemplatePayload): Promise<Template
   return data;
 }
 
+export async function importTemplate(payload: TemplatePayload): Promise<TemplateDetail> {
+  const { data } = await api.post<TemplateDetail>('/templates/import', payload);
+  return data;
+}
+
+export async function exportTemplate(id: number): Promise<TemplatePayload> {
+  const { data } = await api.get<TemplatePayload>(`/templates/${id}/export`);
+  return data;
+}
+
+export async function updateTemplateFromImport(id: number, payload: TemplatePayload): Promise<TemplateDetail> {
+  const { data } = await api.put<TemplateDetail>(`/templates/${id}/import`, payload);
+  return data;
+}
+
 export async function updateTemplate(id: number, payload: TemplatePayload): Promise<TemplateDetail> {
   const { data } = await api.put<TemplateDetail>(`/templates/${id}`, payload);
   return data;

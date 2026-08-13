@@ -8,6 +8,7 @@ import {
   Empty,
   Input,
   List,
+  Modal,
   Popconfirm,
   Row,
   Space,
@@ -16,14 +17,18 @@ import {
   Tag,
   Tree,
   Typography,
+  Upload,
 } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
   DeleteOutlined,
+  DownloadOutlined,
   FolderAddOutlined,
   FolderOutlined,
+  ImportOutlined,
+  InboxOutlined,
   PlusOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
@@ -31,9 +36,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createTemplate,
   deleteTemplate,
+  exportTemplate,
   fetchTemplate,
   fetchTemplates,
+  importTemplate,
   updateTemplate,
+  updateTemplateFromImport,
   type TemplateNode,
   type TemplateNodeInput,
   type TemplatePayload,
@@ -132,6 +140,10 @@ export function DirectoryTemplatesPage() {
   const [tree, setTree] = useState<EditNode[]>([]);
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [updateText, setUpdateText] = useState('');
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['templates'],
@@ -191,6 +203,72 @@ export function DirectoryTemplatesPage() {
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete template')),
   });
 
+  const runImport = useMutation({
+    mutationFn: (payload: TemplatePayload) => importTemplate(payload),
+    onSuccess: (saved) => {
+      message.success(`Imported "${saved.name}"`);
+      setImportOpen(false);
+      setImportText('');
+      invalidate();
+      setSelectedId(saved.id);
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to import template')),
+  });
+
+  const runExport = useMutation({
+    mutationFn: (id: number) => exportTemplate(id),
+    onSuccess: (payload) => {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${(payload.name || 'template').replace(/[^\w.-]+/g, '_')}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      message.success('Template exported');
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to export template')),
+  });
+
+  const runUpdate = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: TemplatePayload }) =>
+      updateTemplateFromImport(id, payload),
+    onSuccess: (saved) => {
+      message.success(`Updated "${saved.name}"`);
+      setUpdateOpen(false);
+      setUpdateText('');
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['templates', saved.id] });
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to update template')),
+  });
+
+  const parsePayload = (text: string): TemplatePayload | null => {
+    let payload: TemplatePayload;
+    try {
+      payload = JSON.parse(text) as TemplatePayload;
+    } catch {
+      message.error('Invalid JSON');
+      return null;
+    }
+    if (!payload || typeof payload.name !== 'string' || !payload.name.trim()) {
+      message.error('JSON must include a non-empty "name"');
+      return null;
+    }
+    return payload;
+  };
+
+  const submitImport = () => {
+    const payload = parsePayload(importText);
+    if (payload) runImport.mutate(payload);
+  };
+
+  const submitUpdate = () => {
+    if (typeof selectedId !== 'number') return;
+    const payload = parsePayload(updateText);
+    if (payload) runUpdate.mutate({ id: selectedId, payload });
+  };
+
   const treeData = useMemo(() => toTreeData(tree), [tree]);
   const selectedNode = selectedNodeKey ? findNode(tree, selectedNodeKey) : null;
 
@@ -238,14 +316,26 @@ export function DirectoryTemplatesPage() {
             title="Templates"
             extra={
               admin && (
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={() => setSelectedId('new')}
-                >
-                  New
-                </Button>
+                <Space size="small">
+                  <Button
+                    size="small"
+                    icon={<ImportOutlined />}
+                    onClick={() => {
+                      setImportText('');
+                      setImportOpen(true);
+                    }}
+                  >
+                    Import
+                  </Button>
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={() => setSelectedId('new')}
+                  >
+                    New
+                  </Button>
+                </Space>
               )
             }
           >
@@ -290,15 +380,33 @@ export function DirectoryTemplatesPage() {
                 admin && (
                   <Space>
                     {typeof selectedId === 'number' && (
-                      <Popconfirm
-                        title="Delete this template?"
-                        description="Artifacts already created keep their folders."
-                        onConfirm={() => remove.mutate(selectedId)}
-                      >
-                        <Button danger icon={<DeleteOutlined />}>
-                          Delete
+                      <>
+                        <Button
+                          icon={<DownloadOutlined />}
+                          loading={runExport.isPending}
+                          onClick={() => runExport.mutate(selectedId)}
+                        >
+                          Export
                         </Button>
-                      </Popconfirm>
+                        <Button
+                          icon={<ImportOutlined />}
+                          onClick={() => {
+                            setUpdateText('');
+                            setUpdateOpen(true);
+                          }}
+                        >
+                          Update from JSON
+                        </Button>
+                        <Popconfirm
+                          title="Delete this template?"
+                          description="Artifacts already created keep their folders."
+                          onConfirm={() => remove.mutate(selectedId)}
+                        >
+                          <Button danger icon={<DeleteOutlined />}>
+                            Delete
+                          </Button>
+                        </Popconfirm>
+                      </>
                     )}
                     <Button
                       type="primary"
@@ -444,6 +552,76 @@ export function DirectoryTemplatesPage() {
           )}
         </Col>
       </Row>
+
+      <Modal
+        open={importOpen}
+        title="Import template from JSON"
+        okText="Import"
+        confirmLoading={runImport.isPending}
+        onCancel={() => setImportOpen(false)}
+        onOk={submitImport}
+        width={640}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Upload.Dragger
+            accept=".json,application/json"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              file.text().then((text) => setImportText(text));
+              return false;
+            }}
+          >
+            <p className="ant-upload-drag-icon">
+              <InboxOutlined />
+            </p>
+            <p className="ant-upload-text">Drag a JSON file here, or click to browse</p>
+          </Upload.Dragger>
+          <Input.TextArea
+            rows={14}
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            placeholder='{ "name": "...", "nodes": [ ... ] }'
+          />
+          <Typography.Text type="secondary">
+            A new template is created; it is never set as default on import. See the README for the full schema.
+          </Typography.Text>
+        </Space>
+      </Modal>
+
+      <Modal
+        open={updateOpen}
+        title="Update template from JSON"
+        okText="Update"
+        confirmLoading={runUpdate.isPending}
+        onCancel={() => setUpdateOpen(false)}
+        onOk={submitUpdate}
+        width={640}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Upload.Dragger
+            accept=".json,application/json"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              file.text().then((text) => setUpdateText(text));
+              return false;
+            }}
+          >
+            <p className="ant-upload-drag-icon">
+              <InboxOutlined />
+            </p>
+            <p className="ant-upload-text">Drag a JSON file here, or click to browse</p>
+          </Upload.Dragger>
+          <Input.TextArea
+            rows={14}
+            value={updateText}
+            onChange={(e) => setUpdateText(e.target.value)}
+            placeholder='{ "name": "...", "nodes": [ ... ] }'
+          />
+          <Typography.Text type="secondary">
+            Replaces this template's name, description and entire folder tree.
+          </Typography.Text>
+        </Space>
+      </Modal>
     </div>
   );
 }

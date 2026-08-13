@@ -31,7 +31,7 @@ import {
   FolderOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   DndContext,
   DragOverlay,
@@ -96,12 +96,34 @@ export function SubWorkflowsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [foldersOpen, setFoldersOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<WorkflowStatus | undefined>(undefined);
-  const [tagFilter, setTagFilter] = useState<string[]>([]);
+
+  // Filters live in the URL query string so they survive navigating into a flow and back.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const setFilterParam = (key: string, value: string | undefined) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value == null || value === '') next.delete(key);
+        else next.set(key, value);
+        return next;
+      },
+      { replace: true },
+    );
+
+  const search = searchParams.get('q') ?? '';
+  const setSearch = (v: string) => setFilterParam('q', v);
+  const statusFilter = (searchParams.get('status') as WorkflowStatus) || undefined;
+  const setStatusFilter = (v: WorkflowStatus | undefined) => setFilterParam('status', v);
+  const tagFilter = useMemo(
+    () => searchParams.get('tags')?.split(',').filter(Boolean) ?? [],
+    [searchParams],
+  );
+  const setTagFilter = (v: string[]) => setFilterParam('tags', v.length ? v.join(',') : undefined);
+  const minConfidence = searchParams.get('minConf') ? Number(searchParams.get('minConf')) : undefined;
+  const setMinConfidence = (v: number | undefined) =>
+    setFilterParam('minConf', v != null ? String(v) : undefined);
   const [tagFilterSearch, setTagFilterSearch] = useState('');
   const [tagFieldSearch, setTagFieldSearch] = useState('');
-  const [minConfidence, setMinConfidence] = useState<number | undefined>(undefined);
   const [view, setView] = useState<LibraryView>(
     () => (localStorage.getItem(VIEW_STORAGE_KEY) as LibraryView) || 'table',
   );
@@ -164,16 +186,24 @@ export function SubWorkflowsPage() {
     statusFilter !== undefined ||
     tagFilter.length > 0 ||
     minConfidence !== undefined;
-  const clearFilters = () => {
-    setSearch('');
-    setStatusFilter(undefined);
-    setTagFilter([]);
-    setMinConfidence(undefined);
-  };
+  const clearFilters = () =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        ['q', 'status', 'tags', 'minConf'].forEach((k) => next.delete(k));
+        return next;
+      },
+      { replace: true },
+    );
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['workflows'] });
 
-  const openWorkflow = (wf: Workflow) => navigate(`/workflow/edit/${wf.id}`);
+  const openWorkflow = (wf: Workflow) => {
+    const qs = searchParams.toString();
+    navigate(`/workflow/edit/${wf.id}`, {
+      state: { returnTo: qs ? `/workflow?${qs}` : '/workflow' },
+    });
+  };
 
   const save = useMutation({
     mutationFn: (values: FormValues) => {

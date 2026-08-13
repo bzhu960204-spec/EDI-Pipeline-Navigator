@@ -47,6 +47,24 @@ public class TemplateController {
         return templateService.create(request, principal.getId());
     }
 
+    @PostMapping("/import")
+    @PreAuthorize("hasRole('ADMIN')")
+    public TemplateDto importTemplate(@Valid @RequestBody TemplateRequest request,
+                                      @AuthenticationPrincipal AppUserPrincipal principal) {
+        return templateService.importNew(request, principal.getId());
+    }
+
+    @GetMapping("/{id}/export")
+    public TemplateRequest export(@PathVariable Long id) {
+        return templateService.export(id);
+    }
+
+    @PutMapping("/{id}/import")
+    @PreAuthorize("hasRole('ADMIN')")
+    public TemplateDto updateFromImport(@PathVariable Long id, @Valid @RequestBody TemplateRequest request) {
+        return templateService.importUpdate(id, request);
+    }
+
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public TemplateDto update(@PathVariable Long id, @Valid @RequestBody TemplateRequest request) {

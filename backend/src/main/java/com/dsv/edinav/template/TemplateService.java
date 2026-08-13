@@ -86,6 +86,34 @@ public class TemplateService {
         templateRepository.deleteById(id);
     }
 
+    /** Creates a template from an imported JSON document; never steals the default flag. */
+    @Transactional
+    public TemplateDto importNew(TemplateRequest request, Long createdBy) {
+        TemplateRequest sanitized = new TemplateRequest(request.name(), request.description(), false, request.nodes());
+        return create(sanitized, createdBy);
+    }
+
+    /** Replaces an existing template's metadata and folder tree from an imported JSON document. */
+    @Transactional
+    public TemplateDto importUpdate(Long id, TemplateRequest request) {
+        return update(id, request);
+    }
+
+    /** Serialises a template into the same shape accepted by import, without database ids. */
+    @Transactional(readOnly = true)
+    public TemplateRequest export(Long id) {
+        DirTemplate template = templateRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Template not found"));
+        return new TemplateRequest(template.getName(), template.getDescription(),
+                template.isDefault(), toInputTree(buildNodeTree(id)));
+    }
+
+    private List<TemplateNodeInput> toInputTree(List<TemplateNodeDto> nodes) {
+        return nodes.stream()
+                .map(n -> new TemplateNodeInput(n.name(), n.description(), toInputTree(n.children())))
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public List<DirTemplateNode> getNodes(Long templateId) {
         return nodeRepository.findByTemplateIdOrderByOrderIndexAsc(templateId);

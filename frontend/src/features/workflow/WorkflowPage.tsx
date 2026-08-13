@@ -3,7 +3,7 @@ import { App as AntApp, Button, Checkbox, Col, Collapse, Dropdown, Input, Modal,
 import type { MenuProps } from 'antd';
 import { ApartmentOutlined, ArrowLeftOutlined, BranchesOutlined, CheckOutlined, DownOutlined, ExportOutlined, GroupOutlined, ImportOutlined, InboxOutlined, MoreOutlined, PartitionOutlined, PlusOutlined, StarOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import {
   addReview,
   createStep,
@@ -58,6 +58,9 @@ export function WorkflowPage() {
   const { message } = AntApp.useApp();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Preserved from the list page so the back button returns to the same filtered view.
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo ?? '/workflow';
   const { id } = useParams();
   const workflowId = Number(id);
   const admin = isAdmin(useAuthStore((s) => s.user));
@@ -405,7 +408,7 @@ export function WorkflowPage() {
         </Space>
       ),
       onClick: () => {
-        if (v.id !== workflowId) navigate(`/workflow/edit/${v.id}`);
+        if (v.id !== workflowId) navigate(`/workflow/edit/${v.id}`, { state: { returnTo } });
       },
     })),
     { type: 'divider' as const },
@@ -476,7 +479,7 @@ export function WorkflowPage() {
       <Row wrap={false} align="middle" gutter={16} style={{ marginBottom: 16 }}>
         <Col flex="auto" style={{ minWidth: 0 }}>
           <Space style={{ maxWidth: '100%' }}>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/workflow')}>
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(returnTo)}>
               Workflows
             </Button>
             <Typography.Title

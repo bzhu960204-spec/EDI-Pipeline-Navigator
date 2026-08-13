@@ -167,3 +167,63 @@ exported file re-imports cleanly. Unknown fields are ignored, so older exports s
   ]
 }
 ```
+
+## Directory Template JSON import/export
+
+Admins can create, replace and download directory (QA folder) templates as JSON on the
+**Directory Templates** page:
+
+- **Import** (list header) creates a new template from JSON via `POST /api/templates/import`.
+  The template is never set as default on import, even if the file says so.
+- **Export** (edit header) downloads the selected template via `GET /api/templates/{id}/export`;
+  the file re-imports cleanly.
+- **Update from JSON** (edit header) replaces the selected template's metadata and entire folder
+  tree via `PUT /api/templates/{id}/import`.
+
+A template is a pure folder tree, so the JSON carries no database ids — nesting is expressed with
+`children`. The whole import runs in one transaction; any error rolls it all back. Unknown fields
+are ignored, so older exports still import.
+
+### Field reference
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `name` | ✅ | Template name, must be unique (else 409) |
+| `description` | | Free text |
+| `isDefault` | | Kept by Export; **ignored on Import** (new templates never steal the default); honored by Update from JSON |
+| `nodes[]` | | Root folders |
+| `nodes[].name` | ✅ | Folder name |
+| `nodes[].description` | | What the folder is used for |
+| `nodes[].children[]` | | Nested subfolders (same shape) |
+
+### Template
+
+```jsonc
+{
+  "name": "DSV EDI Standard",
+  "description": "Default QA folder structure based on a standard EDIT project.",
+  "isDefault": true,            // kept by Export, ignored on Import
+  "nodes": [
+    {
+      "name": "RT",
+      "description": "Runtime artifacts",
+      "children": [
+        { "name": "LW", "children": [] },
+        { "name": "SI", "children": [] }
+      ]
+    },
+    {
+      "name": "TEST",
+      "children": [
+        { "name": "UNIT", "children": [] }
+      ]
+    },
+    { "name": "BP",      "children": [] },
+    { "name": "DESIGN",  "children": [] },
+    { "name": "EISP",    "children": [] },
+    { "name": "QA Docs", "children": [] },
+    { "name": "SPEC",    "children": [] },
+    { "name": "SQL",     "children": [] }
+  ]
+}
+```
