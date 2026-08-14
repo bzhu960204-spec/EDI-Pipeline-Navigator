@@ -180,6 +180,21 @@ export interface ImportWorkflowPayload {
   transitions?: ImportTransition[];
 }
 
+export interface WorkflowBundle {
+  format?: string;
+  formatVersion?: number;
+  exportedAt?: string;
+  count?: number;
+  workflows: ImportWorkflowPayload[];
+}
+
+export type ConflictPolicy = 'SKIP' | 'RENAME';
+
+export interface BundleImportResult {
+  imported: { id: number; name: string }[];
+  failed: { name: string; reason: string }[];
+}
+
 export interface WorkflowFolderPayload {
   name: string;
   color?: string;

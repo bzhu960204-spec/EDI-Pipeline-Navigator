@@ -2,7 +2,11 @@ package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.workflow.dto.CreateVersionRequest;
 import com.dsv.edinav.workflow.dto.ConfidenceRequest;
+import com.dsv.edinav.workflow.dto.BundleImportResult;
+import com.dsv.edinav.workflow.dto.ConflictPolicy;
+import com.dsv.edinav.workflow.dto.ExportBundleRequest;
 import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
+import com.dsv.edinav.workflow.dto.WorkflowBundle;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
@@ -81,6 +85,18 @@ public class WorkflowController {
     public WorkflowDto updateWorkflowFromImport(@PathVariable Long id,
                                                 @Valid @RequestBody ImportWorkflowRequest request) {
         return importExportService.updateWorkflowFromImport(id, request);
+    }
+
+    @PostMapping("/workflows/export-bundle")
+    public WorkflowBundle exportBundle(@RequestBody ExportBundleRequest request) {
+        return importExportService.exportBundle(request.ids(), request.includePhases(), request.includeReviews());
+    }
+
+    @PostMapping("/workflows/import-bundle")
+    @PreAuthorize("hasRole('ADMIN')")
+    public BundleImportResult importBundle(@RequestBody WorkflowBundle bundle,
+                                           @RequestParam(defaultValue = "SKIP") ConflictPolicy conflictPolicy) {
+        return importExportService.importBundle(bundle, conflictPolicy);
     }
 
     @PutMapping("/workflows/{id}")

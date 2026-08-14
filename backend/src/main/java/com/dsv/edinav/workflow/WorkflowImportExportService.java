@@ -2,13 +2,17 @@ package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.artifact.ArtifactRepository;
 import com.dsv.edinav.common.ApiException;
+import com.dsv.edinav.workflow.dto.BundleImportResult;
+import com.dsv.edinav.workflow.dto.ConflictPolicy;
 import com.dsv.edinav.workflow.dto.CreateVersionRequest;
 import com.dsv.edinav.workflow.dto.ImportPhaseNode;
 import com.dsv.edinav.workflow.dto.ImportReviewNode;
 import com.dsv.edinav.workflow.dto.ImportStepNode;
 import com.dsv.edinav.workflow.dto.ImportTransition;
 import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
+import com.dsv.edinav.workflow.dto.WorkflowBundle;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +49,7 @@ public class WorkflowImportExportService {
     private final ArtifactRepository artifactRepository;
     private final StepReviewRepository reviewRepository;
     private final WorkflowService workflowService;
+    private final ObjectProvider<WorkflowImportExportService> self;
 
     public WorkflowImportExportService(WorkflowRepository workflowRepository,
                                        WorkflowStepRepository stepRepository,
@@ -55,7 +60,8 @@ public class WorkflowImportExportService {
                                        WorkflowPhaseRepository phaseRepository,
                                        ArtifactRepository artifactRepository,
                                        StepReviewRepository reviewRepository,
-                                       WorkflowService workflowService) {
+                                       WorkflowService workflowService,
+                                       ObjectProvider<WorkflowImportExportService> self) {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
         this.transitionRepository = transitionRepository;
@@ -66,6 +72,7 @@ public class WorkflowImportExportService {
         this.artifactRepository = artifactRepository;
         this.reviewRepository = reviewRepository;
         this.workflowService = workflowService;
+        this.self = self;
     }
 
     // ---------------- Import ----------------
@@ -98,6 +105,72 @@ public class WorkflowImportExportService {
         Map<String, Long> phaseRefToId = importPhases(request.phases(), workflow.getId());
         importSteps(request.steps(), null, workflow.getId(), refToId, roleCache, phaseRefToId);
         importTransitions(request.transitions(), refToId);
+    }
+
+    // ---------------- Bundle (multi-workflow) import ----------------
+
+    /**
+     * Imports every workflow in a bundle, each in its own transaction so one failure or name
+     * clash never rolls back the rest. Successes and failures are reported per item.
+     */
+    public BundleImportResult importBundle(WorkflowBundle bundle, ConflictPolicy policy) {
+        if (bundle == null || bundle.workflows() == null || bundle.workflows().isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Bundle contains no workflows");
+        }
+        ConflictPolicy effective = policy == null ? ConflictPolicy.SKIP : policy;
+        List<BundleImportResult.Imported> imported = new ArrayList<>();
+        List<BundleImportResult.Failed> failed = new ArrayList<>();
+        for (ImportWorkflowRequest req : bundle.workflows()) {
+            String name = req == null || req.name() == null ? "(unnamed)" : req.name().trim();
+            try {
+                WorkflowDto dto = self.getObject().importOne(req, effective);
+                imported.add(new BundleImportResult.Imported(dto.id(), dto.name()));
+            } catch (ApiException e) {
+                failed.add(new BundleImportResult.Failed(name, e.getMessage()));
+            } catch (RuntimeException e) {
+                failed.add(new BundleImportResult.Failed(name,
+                        e.getMessage() == null ? "Import failed" : e.getMessage()));
+            }
+        }
+        return new BundleImportResult(imported, failed);
+    }
+
+    /** Imports one workflow from a bundle, applying the conflict policy. Own transaction (via proxy). */
+    @Transactional
+    public WorkflowDto importOne(ImportWorkflowRequest request, ConflictPolicy policy) {
+        if (request == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Missing workflow entry");
+        }
+        String name = request.name() == null ? null : request.name().trim();
+        if (policy == ConflictPolicy.RENAME && name != null && !name.isEmpty()
+                && workflowRepository.existsByNameIgnoreCase(name)) {
+            return importWorkflow(withName(request, uniqueName(name)));
+        }
+        return importWorkflow(request);
+    }
+
+    private static ImportWorkflowRequest withName(ImportWorkflowRequest r, String name) {
+        return new ImportWorkflowRequest(name, r.description(), r.status(), r.confidence(),
+                r.tags(), r.phases(), r.steps(), r.transitions());
+    }
+
+    /** Finds a free name by appending "(imported)" / "(imported N)" suffixes. */
+    private String uniqueName(String base) {
+        String candidate = base + " (imported)";
+        if (!workflowRepository.existsByNameIgnoreCase(candidate)) {
+            return trimName(candidate);
+        }
+        for (int i = 2; i < 1000; i++) {
+            candidate = base + " (imported " + i + ")";
+            if (!workflowRepository.existsByNameIgnoreCase(candidate)) {
+                return trimName(candidate);
+            }
+        }
+        return trimName(base + " (" + System.currentTimeMillis() + ")");
+    }
+
+    private static String trimName(String name) {
+        return name.length() <= 200 ? name : name.substring(0, 200);
     }
 
     /** Creates a new editable version (deep copy) of a workflow within the same group; not current. */
@@ -344,6 +417,24 @@ public class WorkflowImportExportService {
                 workflow.getConfidence() == 0 ? null : workflow.getConfidence(),
                 tagNames,
                 phaseNodes, stepNodes, transitions);
+    }
+
+    /**
+     * Exports many workflows into one bundle. An empty/null id list means "all current-version
+     * workflows". Reuses {@link #exportWorkflow} per id, so each entry round-trips through import.
+     */
+    @Transactional(readOnly = true)
+    public WorkflowBundle exportBundle(List<Long> ids, boolean includePhases, boolean includeReviews) {
+        List<Long> targetIds = (ids == null || ids.isEmpty())
+                ? workflowRepository.findByIsCurrentTrueOrderByOrderIndexAsc().stream()
+                        .map(Workflow::getId).toList()
+                : ids;
+        List<ImportWorkflowRequest> exported = new ArrayList<>();
+        for (Long id : targetIds) {
+            exported.add(exportWorkflow(id, includePhases, includeReviews));
+        }
+        return new WorkflowBundle(WorkflowBundle.FORMAT, WorkflowBundle.FORMAT_VERSION,
+                Instant.now().toString(), exported.size(), exported);
     }
 
     private List<ImportStepNode> exportStepNodes(Long parentKey, Map<Long, List<WorkflowStep>> byParent,

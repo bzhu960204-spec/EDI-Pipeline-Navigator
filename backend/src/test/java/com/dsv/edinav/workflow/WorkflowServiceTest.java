@@ -48,8 +48,9 @@ class WorkflowServiceTest {
         service = new WorkflowService(workflowRepository, stepRepository, transitionRepository,
                 transitionGroupRepository, coFireGroupRepository, roleRepository, phaseRepository, folderRepository, artifactRepository,
                 reviewRepository, flagRepository);
+        // self-provider only used by importBundle (not exercised here); null is safe for these tests
         importExport = new WorkflowImportExportService(workflowRepository, stepRepository, transitionRepository,
-                transitionGroupRepository, coFireGroupRepository, roleRepository, phaseRepository, artifactRepository, reviewRepository, service);
+                transitionGroupRepository, coFireGroupRepository, roleRepository, phaseRepository, artifactRepository, reviewRepository, service, null);
     }
 
     /** A 3-step workflow: roots "Receive"(child "Log") and "Validate", edge Receive->Validate, phase "Intake". */

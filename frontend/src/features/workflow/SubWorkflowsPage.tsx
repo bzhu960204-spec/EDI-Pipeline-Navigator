@@ -1,9 +1,12 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import {
+  Alert,
   App as AntApp,
   Badge,
   Button,
+  Checkbox,
   Collapse,
+  Divider,
   Empty,
   Form,
   Input,
@@ -27,6 +30,7 @@ import {
   PlusOutlined,
   EditFilled,
   ImportOutlined,
+  ExportOutlined,
   InboxOutlined,
   FolderOutlined,
 } from '@ant-design/icons';
@@ -45,13 +49,18 @@ import {
 import {
   createWorkflow,
   deleteWorkflow,
+  exportBundle,
   fetchFolders,
   fetchWorkflows,
+  importBundle,
   importWorkflow,
   setWorkflowConfidence,
   updateWorkflow,
+  type BundleImportResult,
+  type ConflictPolicy,
   type ImportWorkflowPayload,
   type Workflow,
+  type WorkflowBundle,
   type WorkflowPayload,
   type WorkflowStatus,
 } from '../../api/workflow';
@@ -95,6 +104,14 @@ export function SubWorkflowsPage() {
   const [editing, setEditing] = useState<Workflow | null | undefined>(undefined);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
+  const [importMode, setImportMode] = useState<'single' | 'batch'>('single');
+  const [conflictPolicy, setConflictPolicy] = useState<ConflictPolicy>('SKIP');
+  const [importResult, setImportResult] = useState<BundleImportResult | null>(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportIds, setExportIds] = useState<number[]>([]);
+  const [exportIncludePhases, setExportIncludePhases] = useState(false);
+  const [exportIncludeReviews, setExportIncludeReviews] = useState(false);
   const [foldersOpen, setFoldersOpen] = useState(false);
 
   // Filters live in the URL query string so they survive navigating into a flow and back.
@@ -300,21 +317,59 @@ export function SubWorkflowsPage() {
     mutationFn: (payload: ImportWorkflowPayload) => importWorkflow(payload),
     onSuccess: (wf) => {
       message.success(`Imported "${wf.name}"`);
-      setImportOpen(false);
-      setImportText('');
+      closeImport();
       invalidate();
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to import workflow')),
   });
 
+  const runImportBundle = useMutation({
+    mutationFn: ({ bundle, policy }: { bundle: WorkflowBundle; policy: ConflictPolicy }) =>
+      importBundle(bundle, policy),
+    onSuccess: (result) => {
+      setImportResult(result);
+      const okCount = result.imported.length;
+      const failCount = result.failed.length;
+      if (okCount > 0) message.success(`Imported ${okCount} workflow(s)`);
+      if (failCount > 0) message.warning(`${failCount} skipped or failed`);
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to import bundle')),
+  });
+
+  const closeImport = () => {
+    setImportOpen(false);
+    setImportText('');
+    setImportResult(null);
+  };
+
+  // Auto-detect the bundle envelope so pasting/uploading a batch file flips the mode for the user.
+  const looksLikeBundle = (parsed: unknown): parsed is WorkflowBundle =>
+    typeof parsed === 'object' &&
+    parsed !== null &&
+    Array.isArray((parsed as WorkflowBundle).workflows);
+
   const submitImport = () => {
-    let payload: ImportWorkflowPayload;
+    let parsed: unknown;
     try {
-      payload = JSON.parse(importText) as ImportWorkflowPayload;
+      parsed = JSON.parse(importText);
     } catch {
       message.error('Invalid JSON');
       return;
     }
+    if (importMode === 'batch') {
+      if (!looksLikeBundle(parsed)) {
+        message.error('Batch file must contain a "workflows" array');
+        return;
+      }
+      if (parsed.workflows.length === 0) {
+        message.error('Bundle contains no workflows');
+        return;
+      }
+      runImportBundle.mutate({ bundle: parsed, policy: conflictPolicy });
+      return;
+    }
+    const payload = parsed as ImportWorkflowPayload;
     if (!payload || typeof payload.name !== 'string' || !payload.name.trim()) {
       message.error('JSON must include a non-empty "name"');
       return;
@@ -323,8 +378,49 @@ export function SubWorkflowsPage() {
   };
 
   const onImportFile = (file: File) => {
-    file.text().then((text) => setImportText(text));
+    file.text().then((text) => {
+      setImportText(text);
+      try {
+        if (looksLikeBundle(JSON.parse(text))) setImportMode('batch');
+      } catch {
+        /* ignore parse errors here; submit re-validates */
+      }
+    });
     return false;
+  };
+
+  const downloadBundle = (bundle: WorkflowBundle) => {
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    const stamp = new Date().toISOString().slice(0, 10);
+    anchor.download = `edinav-workflows-${bundle.count ?? bundle.workflows.length}-${stamp}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const runExport = useMutation({
+    mutationFn: ({
+      ids,
+      includePhases,
+      includeReviews,
+    }: {
+      ids: number[];
+      includePhases: boolean;
+      includeReviews: boolean;
+    }) => exportBundle(ids, includePhases, includeReviews),
+    onSuccess: (bundle) => {
+      downloadBundle(bundle);
+      setExportOpen(false);
+      message.success(`Exported ${bundle.count ?? bundle.workflows.length} workflow(s)`);
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to export workflows')),
+  });
+
+  const openExport = (ids: number[]) => {
+    setExportIds(ids);
+    setExportOpen(true);
   };
 
   const openCreate = () => {
@@ -529,19 +625,32 @@ export function SubWorkflowsPage() {
         <Typography.Title level={4} style={{ margin: 0 }}>
           Workflows
         </Typography.Title>
-        {admin && (
-          <Space>
-            <Button icon={<FolderOutlined />} onClick={() => setFoldersOpen(true)}>
-              Manage folders
+        <Space>
+          {selectedRowKeys.length > 0 && (
+            <Button
+              icon={<ExportOutlined />}
+              onClick={() => openExport(selectedRowKeys)}
+            >
+              Export selected ({selectedRowKeys.length})
             </Button>
-            <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
-              Import JSON
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-              New workflow
-            </Button>
-          </Space>
-        )}
+          )}
+          <Button icon={<ExportOutlined />} onClick={() => openExport([])}>
+            Export all
+          </Button>
+          {admin && (
+            <>
+              <Button icon={<FolderOutlined />} onClick={() => setFoldersOpen(true)}>
+                Manage folders
+              </Button>
+              <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
+                Import JSON
+              </Button>
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+                New workflow
+              </Button>
+            </>
+          )}
+        </Space>
       </Row>
 
       <Space wrap style={{ marginBottom: 16 }}>
@@ -601,6 +710,11 @@ export function SubWorkflowsPage() {
           loading={isLoading}
           columns={columns}
           dataSource={filtered}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys as number[]),
+            preserveSelectedRowKeys: true,
+          }}
           pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `${total} workflow(s)` }}
         />
       ) : (
@@ -656,14 +770,37 @@ export function SubWorkflowsPage() {
 
       <Modal
         open={importOpen}
-        title="Import workflow from JSON"
-        okText="Import"
-        confirmLoading={runImport.isPending}
-        onCancel={() => setImportOpen(false)}
+        title="Import workflows from JSON"
+        okText={importMode === 'batch' ? 'Import bundle' : 'Import'}
+        confirmLoading={runImport.isPending || runImportBundle.isPending}
+        onCancel={closeImport}
         onOk={submitImport}
         width={640}
       >
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Segmented
+            block
+            value={importMode}
+            onChange={(v) => setImportMode(v as 'single' | 'batch')}
+            options={[
+              { label: 'Single workflow', value: 'single' },
+              { label: 'Batch (bundle)', value: 'batch' },
+            ]}
+          />
+          {importMode === 'batch' && (
+            <Space>
+              <Typography.Text>On name conflict:</Typography.Text>
+              <Select
+                value={conflictPolicy}
+                onChange={(v) => setConflictPolicy(v)}
+                style={{ width: 220 }}
+                options={[
+                  { value: 'SKIP', label: 'Skip existing' },
+                  { value: 'RENAME', label: 'Import as a renamed copy' },
+                ]}
+              />
+            </Space>
+          )}
           <Upload.Dragger accept=".json,application/json" showUploadList={false} beforeUpload={onImportFile}>
             <p className="ant-upload-drag-icon">
               <InboxOutlined />
@@ -671,14 +808,73 @@ export function SubWorkflowsPage() {
             <p className="ant-upload-text">Drag a JSON file here, or click to browse</p>
           </Upload.Dragger>
           <Input.TextArea
-            rows={14}
+            rows={12}
             value={importText}
             onChange={(e) => setImportText(e.target.value)}
-            placeholder='{ "name": "...", "steps": [ ... ], "transitions": [ ... ] }'
+            placeholder={
+              importMode === 'batch'
+                ? '{ "format": "edinav-workflow-bundle", "workflows": [ ... ] }'
+                : '{ "name": "...", "steps": [ ... ], "transitions": [ ... ] }'
+            }
           />
           <Typography.Text type="secondary">
             Missing business roles are created automatically. See the README for the full template.
           </Typography.Text>
+          {importResult && (
+            <>
+              <Divider style={{ margin: '4px 0' }} />
+              <Alert
+                type={importResult.failed.length === 0 ? 'success' : 'warning'}
+                showIcon
+                message={`${importResult.imported.length} imported, ${importResult.failed.length} skipped/failed`}
+                description={
+                  importResult.failed.length > 0 ? (
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {importResult.failed.map((f) => (
+                        <li key={f.name}>
+                          <Typography.Text strong>{f.name}</Typography.Text>: {f.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : undefined
+                }
+              />
+            </>
+          )}
+        </Space>
+      </Modal>
+
+      <Modal
+        open={exportOpen}
+        title={exportIds.length > 0 ? `Export ${exportIds.length} selected workflow(s)` : 'Export all workflows'}
+        okText="Download"
+        confirmLoading={runExport.isPending}
+        onCancel={() => setExportOpen(false)}
+        onOk={() =>
+          runExport.mutate({
+            ids: exportIds,
+            includePhases: exportIncludePhases,
+            includeReviews: exportIncludeReviews,
+          })
+        }
+        width={520}
+      >
+        <Space direction="vertical" size="middle">
+          <Typography.Text type="secondary">
+            Downloads a single JSON bundle that can be imported into another instance.
+          </Typography.Text>
+          <Checkbox
+            checked={exportIncludePhases}
+            onChange={(e) => setExportIncludePhases(e.target.checked)}
+          >
+            Include phases
+          </Checkbox>
+          <Checkbox
+            checked={exportIncludeReviews}
+            onChange={(e) => setExportIncludeReviews(e.target.checked)}
+          >
+            Include step reviews
+          </Checkbox>
         </Space>
       </Modal>
 

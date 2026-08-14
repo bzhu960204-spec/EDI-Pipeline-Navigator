@@ -1,7 +1,10 @@
 import { api } from '../client';
 import type {
+  BundleImportResult,
+  ConflictPolicy,
   ImportWorkflowPayload,
   Workflow,
+  WorkflowBundle,
   WorkflowPayload,
 } from './types';
 
@@ -66,6 +69,29 @@ export async function updateWorkflowFromImport(
   payload: ImportWorkflowPayload,
 ): Promise<Workflow> {
   const { data } = await api.put<Workflow>(`/workflow/workflows/${id}/import`, payload);
+  return data;
+}
+
+export async function exportBundle(
+  ids: number[],
+  includePhases: boolean,
+  includeReviews: boolean,
+): Promise<WorkflowBundle> {
+  const { data } = await api.post<WorkflowBundle>('/workflow/workflows/export-bundle', {
+    ids,
+    includePhases,
+    includeReviews,
+  });
+  return data;
+}
+
+export async function importBundle(
+  bundle: WorkflowBundle,
+  conflictPolicy: ConflictPolicy,
+): Promise<BundleImportResult> {
+  const { data } = await api.post<BundleImportResult>('/workflow/workflows/import-bundle', bundle, {
+    params: { conflictPolicy },
+  });
   return data;
 }
 
