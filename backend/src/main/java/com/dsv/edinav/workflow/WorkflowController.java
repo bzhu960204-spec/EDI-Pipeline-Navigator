@@ -12,7 +12,6 @@ import com.dsv.edinav.workflow.dto.WorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -62,13 +61,11 @@ public class WorkflowController {
     }
 
     @PostMapping("/workflows")
-    @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto createWorkflow(@Valid @RequestBody WorkflowRequest request) {
         return workflowService.createWorkflow(request);
     }
 
     @PostMapping("/workflows/import")
-    @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto importWorkflow(@Valid @RequestBody ImportWorkflowRequest request) {
         return importExportService.importWorkflow(request);
     }
@@ -81,7 +78,6 @@ public class WorkflowController {
     }
 
     @PutMapping("/workflows/{id}/import")
-    @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto updateWorkflowFromImport(@PathVariable Long id,
                                                 @Valid @RequestBody ImportWorkflowRequest request) {
         return importExportService.updateWorkflowFromImport(id, request);
@@ -93,44 +89,37 @@ public class WorkflowController {
     }
 
     @PostMapping("/workflows/import-bundle")
-    @PreAuthorize("hasRole('ADMIN')")
     public BundleImportResult importBundle(@RequestBody WorkflowBundle bundle,
                                            @RequestParam(defaultValue = "SKIP") ConflictPolicy conflictPolicy) {
         return importExportService.importBundle(bundle, conflictPolicy);
     }
 
     @PutMapping("/workflows/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto updateWorkflow(@PathVariable Long id, @Valid @RequestBody WorkflowRequest request) {
         return workflowService.updateWorkflow(id, request);
     }
 
     @PostMapping("/workflows/{id}/versions")
-    @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto createVersion(@PathVariable Long id, @Valid @RequestBody CreateVersionRequest request) {
         return importExportService.createVersion(id, request);
     }
 
     @PutMapping("/workflows/{id}/version-label")
-    @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto updateVersionLabel(@PathVariable Long id, @Valid @RequestBody CreateVersionRequest request) {
         return workflowService.updateVersionLabel(id, request == null ? null : request.label());
     }
 
     @PutMapping("/workflows/{id}/confidence")
-    @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto updateConfidence(@PathVariable Long id, @Valid @RequestBody ConfidenceRequest request) {
         return workflowService.setConfidence(id, request.confidence());
     }
 
     @PostMapping("/workflows/{id}/set-current")
-    @PreAuthorize("hasRole('ADMIN')")
     public WorkflowDto setCurrent(@PathVariable Long id) {
         return workflowService.setCurrent(id);
     }
 
     @DeleteMapping("/workflows/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteWorkflow(@PathVariable Long id) {
         workflowService.deleteWorkflow(id);

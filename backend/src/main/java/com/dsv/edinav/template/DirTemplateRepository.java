@@ -7,6 +7,9 @@ import java.util.Optional;
 
 public interface DirTemplateRepository extends JpaRepository<DirTemplate, Long> {
     List<DirTemplate> findAllByOrderByNameAsc();
+    List<DirTemplate> findByCreatedByOrderByNameAsc(Long createdBy);
     Optional<DirTemplate> findFirstByIsDefaultTrue();
+    Optional<DirTemplate> findFirstByCreatedByAndIsDefaultTrue(Long createdBy);
     boolean existsByNameIgnoreCase(String name);
+    boolean existsByNameIgnoreCaseAndCreatedBy(String name, Long createdBy);
 }

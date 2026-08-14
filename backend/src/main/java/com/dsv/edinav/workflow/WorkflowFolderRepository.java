@@ -6,6 +6,9 @@ import java.util.List;
 
 public interface WorkflowFolderRepository extends JpaRepository<WorkflowFolder, Long> {
     boolean existsByNameIgnoreCase(String name);
-    boolean existsByNameIgnoreCaseAndIdNot(String name, Long id);
+    boolean existsByNameIgnoreCaseAndOwnerId(String name, Long ownerId);
+    boolean existsByNameIgnoreCaseAndOwnerIdAndIdNot(String name, Long ownerId, Long id);
     List<WorkflowFolder> findAllByOrderByOrderIndexAscNameAsc();
+    List<WorkflowFolder> findByOwnerIdOrderByOrderIndexAscNameAsc(Long ownerId);
+    long countByOwnerId(Long ownerId);
 }

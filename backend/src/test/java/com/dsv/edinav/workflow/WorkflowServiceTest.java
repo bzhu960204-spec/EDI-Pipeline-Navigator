@@ -2,6 +2,9 @@ package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.artifact.ArtifactRepository;
 import com.dsv.edinav.common.ApiException;
+import com.dsv.edinav.security.AppUserPrincipal;
+import com.dsv.edinav.security.CurrentUserService;
+import com.dsv.edinav.user.User;
 import com.dsv.edinav.workflow.dto.CreateVersionRequest;
 import com.dsv.edinav.workflow.dto.ImportPhaseNode;
 import com.dsv.edinav.workflow.dto.ImportStepNode;
@@ -10,10 +13,13 @@ import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowDto;
 import com.dsv.edinav.workflow.dto.WorkflowRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,12 +51,25 @@ class WorkflowServiceTest {
 
     @BeforeEach
     void setUp() {
+        User user = new User();
+        user.setId(1L);
+        user.setUsername("tester");
+        user.setPasswordHash("x");
+        AppUserPrincipal principal = new AppUserPrincipal(user);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+        CurrentUserService currentUser = new CurrentUserService();
         service = new WorkflowService(workflowRepository, stepRepository, transitionRepository,
                 transitionGroupRepository, coFireGroupRepository, roleRepository, phaseRepository, folderRepository, artifactRepository,
-                reviewRepository, flagRepository);
+                reviewRepository, flagRepository, currentUser);
         // self-provider only used by importBundle (not exercised here); null is safe for these tests
         importExport = new WorkflowImportExportService(workflowRepository, stepRepository, transitionRepository,
-                transitionGroupRepository, coFireGroupRepository, roleRepository, phaseRepository, artifactRepository, reviewRepository, service, null);
+                transitionGroupRepository, coFireGroupRepository, roleRepository, phaseRepository, artifactRepository, reviewRepository, service, null, currentUser);
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
     }
 
     /** A 3-step workflow: roots "Receive"(child "Log") and "Validate", edge Receive->Validate, phase "Intake". */

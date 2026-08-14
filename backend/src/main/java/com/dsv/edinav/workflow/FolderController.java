@@ -4,7 +4,6 @@ import com.dsv.edinav.workflow.dto.WorkflowFolderDto;
 import com.dsv.edinav.workflow.dto.WorkflowFolderRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,19 +32,16 @@ public class FolderController {
     }
 
     @PostMapping("/folders")
-    @PreAuthorize("hasRole('ADMIN')")
     public WorkflowFolderDto createFolder(@Valid @RequestBody WorkflowFolderRequest request) {
         return folderService.createFolder(request);
     }
 
     @PutMapping("/folders/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     public WorkflowFolderDto updateFolder(@PathVariable Long id, @Valid @RequestBody WorkflowFolderRequest request) {
         return folderService.updateFolder(id, request);
     }
 
     @DeleteMapping("/folders/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteFolder(@PathVariable Long id) {
         folderService.deleteFolder(id);

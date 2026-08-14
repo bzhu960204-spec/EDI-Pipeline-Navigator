@@ -2,6 +2,7 @@ package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.artifact.ArtifactRepository;
 import com.dsv.edinav.common.ApiException;
+import com.dsv.edinav.security.CurrentUserService;
 import com.dsv.edinav.workflow.dto.BundleImportResult;
 import com.dsv.edinav.workflow.dto.ConflictPolicy;
 import com.dsv.edinav.workflow.dto.CreateVersionRequest;
@@ -50,6 +51,7 @@ public class WorkflowImportExportService {
     private final StepReviewRepository reviewRepository;
     private final WorkflowService workflowService;
     private final ObjectProvider<WorkflowImportExportService> self;
+    private final CurrentUserService currentUser;
 
     public WorkflowImportExportService(WorkflowRepository workflowRepository,
                                        WorkflowStepRepository stepRepository,
@@ -61,7 +63,8 @@ public class WorkflowImportExportService {
                                        ArtifactRepository artifactRepository,
                                        StepReviewRepository reviewRepository,
                                        WorkflowService workflowService,
-                                       ObjectProvider<WorkflowImportExportService> self) {
+                                       ObjectProvider<WorkflowImportExportService> self,
+                                       CurrentUserService currentUser) {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
         this.transitionRepository = transitionRepository;
@@ -73,20 +76,23 @@ public class WorkflowImportExportService {
         this.reviewRepository = reviewRepository;
         this.workflowService = workflowService;
         this.self = self;
+        this.currentUser = currentUser;
     }
 
     // ---------------- Import ----------------
 
     @Transactional
     public WorkflowDto importWorkflow(ImportWorkflowRequest request) {
+        Long ownerId = currentUser.requireUserId();
         String name = request.name() == null ? null : request.name().trim();
         if (name == null || name.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Workflow name is required");
         }
-        if (workflowRepository.existsByNameIgnoreCase(name)) {
+        if (workflowRepository.existsByNameIgnoreCaseAndOwnerId(name, ownerId)) {
             throw new ApiException(HttpStatus.CONFLICT, "Workflow name already exists");
         }
         Workflow workflow = new Workflow();
+        workflow.setOwnerId(ownerId);
         workflow.setName(name);
         workflow.setDescription(request.description());
         workflow.setStatus(request.status() == null ? WorkflowStatus.DRAFT : workflowService.parseStatus(request.status()));
@@ -94,16 +100,16 @@ public class WorkflowImportExportService {
         workflow.setConfidence(WorkflowService.clampConfidence(request.confidence()));
         workflow.setTags(workflowService.cleanTags(request.tags()));
         workflowService.saveAsNewGroup(workflow);
-        populateFromImport(workflow, request);
+        populateFromImport(workflow, request, ownerId);
         return workflowService.toWorkflowDto(workflow);
     }
 
     /** Creates the phases, step tree and transitions of {@code workflow} from an import payload. */
-    private void populateFromImport(Workflow workflow, ImportWorkflowRequest request) {
+    private void populateFromImport(Workflow workflow, ImportWorkflowRequest request, Long ownerId) {
         Map<String, Long> refToId = new LinkedHashMap<>();
         Map<String, BusinessRole> roleCache = new HashMap<>();
         Map<String, Long> phaseRefToId = importPhases(request.phases(), workflow.getId());
-        importSteps(request.steps(), null, workflow.getId(), refToId, roleCache, phaseRefToId);
+        importSteps(request.steps(), null, workflow.getId(), refToId, roleCache, phaseRefToId, ownerId);
         importTransitions(request.transitions(), refToId);
     }
 
@@ -141,10 +147,11 @@ public class WorkflowImportExportService {
         if (request == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Missing workflow entry");
         }
+        Long ownerId = currentUser.requireUserId();
         String name = request.name() == null ? null : request.name().trim();
         if (policy == ConflictPolicy.RENAME && name != null && !name.isEmpty()
-                && workflowRepository.existsByNameIgnoreCase(name)) {
-            return importWorkflow(withName(request, uniqueName(name)));
+                && workflowRepository.existsByNameIgnoreCaseAndOwnerId(name, ownerId)) {
+            return importWorkflow(withName(request, uniqueName(name, ownerId)));
         }
         return importWorkflow(request);
     }
@@ -154,15 +161,15 @@ public class WorkflowImportExportService {
                 r.tags(), r.phases(), r.steps(), r.transitions());
     }
 
-    /** Finds a free name by appending "(imported)" / "(imported N)" suffixes. */
-    private String uniqueName(String base) {
+    /** Finds a free name (within the owner's workflows) by appending "(imported)" / "(imported N)" suffixes. */
+    private String uniqueName(String base, Long ownerId) {
         String candidate = base + " (imported)";
-        if (!workflowRepository.existsByNameIgnoreCase(candidate)) {
+        if (!workflowRepository.existsByNameIgnoreCaseAndOwnerId(candidate, ownerId)) {
             return trimName(candidate);
         }
         for (int i = 2; i < 1000; i++) {
             candidate = base + " (imported " + i + ")";
-            if (!workflowRepository.existsByNameIgnoreCase(candidate)) {
+            if (!workflowRepository.existsByNameIgnoreCaseAndOwnerId(candidate, ownerId)) {
                 return trimName(candidate);
             }
         }
@@ -179,6 +186,7 @@ public class WorkflowImportExportService {
         Workflow source = workflowService.requireWorkflow(sourceId);
         ImportWorkflowRequest snapshot = exportWorkflow(sourceId, true, true);
         Workflow version = new Workflow();
+        version.setOwnerId(source.getOwnerId());
         version.setName(source.getName());
         version.setDescription(source.getDescription());
         version.setStatus(source.getStatus());
@@ -191,13 +199,13 @@ public class WorkflowImportExportService {
         version.setConfidence(source.getConfidence());
         version.setTags(new ArrayList<>(source.getTags()));
         workflowRepository.save(version);
-        populateFromImport(version, snapshot);
+        populateFromImport(version, snapshot, source.getOwnerId());
         return workflowService.toWorkflowDto(version);
     }
 
     private void importSteps(List<ImportStepNode> nodes, Long parentId, Long workflowId,
                              Map<String, Long> refToId, Map<String, BusinessRole> roleCache,
-                             Map<String, Long> phaseRefToId) {
+                             Map<String, Long> phaseRefToId, Long ownerId) {
         if (nodes == null) {
             return;
         }
@@ -220,13 +228,13 @@ public class WorkflowImportExportService {
             step.setDescription(node.description());
             step.setNotes(node.notes());
             step.setLineageKey(node.lineageKey());
-            step.setBusinessRoleIds(resolveRoles(node.roles(), node.role(), roleCache));
+            step.setBusinessRoleIds(resolveRoles(node.roles(), node.role(), roleCache, ownerId));
             step.setPhaseId(resolveImportedPhase(node.phase(), phaseRefToId));
             step.setOrderIndex(order++);
             stepRepository.save(step);
             saveReviews(step.getId(), node.reviews());
             refToId.put(ref, step.getId());
-            importSteps(node.children(), step.getId(), workflowId, refToId, roleCache, phaseRefToId);
+            importSteps(node.children(), step.getId(), workflowId, refToId, roleCache, phaseRefToId, ownerId);
         }
     }
 
@@ -426,7 +434,7 @@ public class WorkflowImportExportService {
     @Transactional(readOnly = true)
     public WorkflowBundle exportBundle(List<Long> ids, boolean includePhases, boolean includeReviews) {
         List<Long> targetIds = (ids == null || ids.isEmpty())
-                ? workflowRepository.findByIsCurrentTrueOrderByOrderIndexAsc().stream()
+                ? workflowRepository.findByOwnerIdAndIsCurrentTrueOrderByOrderIndexAsc(currentUser.requireUserId()).stream()
                         .map(Workflow::getId).toList()
                 : ids;
         List<ImportWorkflowRequest> exported = new ArrayList<>();
@@ -485,7 +493,7 @@ public class WorkflowImportExportService {
         if (name == null || name.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Workflow name is required");
         }
-        if (workflowRepository.existsByNameIgnoreCaseAndGroupIdNot(name, workflow.getGroupId())) {
+        if (workflowRepository.existsByNameIgnoreCaseAndOwnerIdAndGroupIdNot(name, workflow.getOwnerId(), workflow.getGroupId())) {
             throw new ApiException(HttpStatus.CONFLICT, "Workflow name already exists");
         }
 
@@ -508,7 +516,7 @@ public class WorkflowImportExportService {
         coFireGroupRepository.deleteAllById(obsoleteCoFire);
 
         UpdateImportContext ctx = new UpdateImportContext(id, existingById, phaseRefToId,
-                existingPhaseByName, hasPhases);
+                existingPhaseByName, hasPhases, workflow.getOwnerId());
         upsertSteps(request.steps(), null, null, ctx);
 
         // Remove steps that vanished from the JSON, unless an artifact currently sits on one.
@@ -549,18 +557,20 @@ public class WorkflowImportExportService {
         final Map<String, Long> phaseRefToId;
         final Map<String, Long> existingPhaseByName;
         final boolean hasPhases;
+        final Long ownerId;
         final Map<String, Long> refToId = new LinkedHashMap<>();
         final Set<Long> seen = new HashSet<>();
         final Map<String, BusinessRole> roleCache = new HashMap<>();
 
         UpdateImportContext(Long workflowId, Map<Long, WorkflowStep> existingById,
                             Map<String, Long> phaseRefToId, Map<String, Long> existingPhaseByName,
-                            boolean hasPhases) {
+                            boolean hasPhases, Long ownerId) {
             this.workflowId = workflowId;
             this.existingById = existingById;
             this.phaseRefToId = phaseRefToId;
             this.existingPhaseByName = existingPhaseByName;
             this.hasPhases = hasPhases;
+            this.ownerId = ownerId;
         }
     }
 
@@ -597,7 +607,7 @@ public class WorkflowImportExportService {
             step.setName(node.name().trim());
             step.setDescription(node.description());
             step.setNotes(node.notes());
-            step.setBusinessRoleIds(resolveRoles(node.roles(), node.role(), ctx.roleCache));
+            step.setBusinessRoleIds(resolveRoles(node.roles(), node.role(), ctx.roleCache, ctx.ownerId));
             Long phaseId = resolvePhaseForUpdate(node, isNew, step, parentPhaseId, ctx);
             step.setPhaseId(phaseId);
             step.setOrderIndex(order++);
@@ -696,15 +706,16 @@ public class WorkflowImportExportService {
         return refToId;
     }
 
-    /** Resolves a role by name (case-insensitive), auto-creating it when missing. */
-    private Long resolveRole(String roleName, Map<String, BusinessRole> cache) {
+    /** Resolves a role by name (case-insensitive) within the owner's roles, auto-creating it when missing. */
+    private Long resolveRole(String roleName, Map<String, BusinessRole> cache, Long ownerId) {
         if (roleName == null || roleName.isBlank()) {
             return null;
         }
         String key = roleName.trim().toLowerCase();
         BusinessRole role = cache.computeIfAbsent(key, k ->
-                roleRepository.findFirstByNameIgnoreCase(roleName.trim()).orElseGet(() -> {
+                roleRepository.findFirstByOwnerIdAndNameIgnoreCase(ownerId, roleName.trim()).orElseGet(() -> {
                     BusinessRole created = new BusinessRole();
+                    created.setOwnerId(ownerId);
                     created.setName(roleName.trim());
                     return roleRepository.save(created);
                 }));
@@ -712,15 +723,15 @@ public class WorkflowImportExportService {
     }
 
     /** Merges the legacy singular {@code role} with the {@code roles} list, resolving each by name (deduped, order-preserving). */
-    private List<Long> resolveRoles(List<String> names, String single, Map<String, BusinessRole> cache) {
+    private List<Long> resolveRoles(List<String> names, String single, Map<String, BusinessRole> cache, Long ownerId) {
         LinkedHashSet<Long> ids = new LinkedHashSet<>();
-        Long fromSingle = resolveRole(single, cache);
+        Long fromSingle = resolveRole(single, cache, ownerId);
         if (fromSingle != null) {
             ids.add(fromSingle);
         }
         if (names != null) {
             for (String name : names) {
-                Long id = resolveRole(name, cache);
+                Long id = resolveRole(name, cache, ownerId);
                 if (id != null) {
                     ids.add(id);
                 }

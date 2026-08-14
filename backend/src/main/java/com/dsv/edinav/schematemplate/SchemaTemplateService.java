@@ -6,6 +6,7 @@ import com.dsv.edinav.schematemplate.dto.CreateTemplateVersionRequest;
 import com.dsv.edinav.schematemplate.dto.SchemaTemplateDto;
 import com.dsv.edinav.schematemplate.dto.SchemaTemplateSummaryDto;
 import com.dsv.edinav.schematemplate.dto.UpdateTemplateMetadataRequest;
+import com.dsv.edinav.security.CurrentUserService;
 import com.dsv.edinav.workflow.dto.ImportWorkflowRequest;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -22,12 +23,15 @@ import java.util.List;
 public class SchemaTemplateService {
 
     private final SchemaTemplateRepository repository;
+    private final CurrentUserService currentUser;
 
     /** Lenient reader for advisory validation: tolerates jsonc comments/trailing commas and unknown fields. */
     private final ObjectMapper validator;
 
-    public SchemaTemplateService(SchemaTemplateRepository repository, ObjectMapper objectMapper) {
+    public SchemaTemplateService(SchemaTemplateRepository repository, ObjectMapper objectMapper,
+                                 CurrentUserService currentUser) {
         this.repository = repository;
+        this.currentUser = currentUser;
         this.validator = objectMapper.copy()
                 .configure(JsonParser.Feature.ALLOW_COMMENTS, true)
                 .configure(JsonParser.Feature.ALLOW_TRAILING_COMMA, true)
@@ -38,7 +42,7 @@ public class SchemaTemplateService {
 
     @Transactional(readOnly = true)
     public List<SchemaTemplateSummaryDto> list() {
-        return repository.findByIsCurrentTrueOrderByNameAsc().stream()
+        return repository.findByOwnerIdAndIsCurrentTrueOrderByNameAsc(currentUser.requireUserId()).stream()
                 .map(this::toSummary).toList();
     }
 
@@ -59,11 +63,13 @@ public class SchemaTemplateService {
 
     @Transactional
     public SchemaTemplateDto create(CreateSchemaTemplateRequest request, String username) {
+        Long ownerId = currentUser.requireUserId();
         String name = request.name().trim();
-        repository.findFirstByNameIgnoreCase(name).ifPresent(t -> {
+        repository.findFirstByOwnerIdAndNameIgnoreCase(ownerId, name).ifPresent(t -> {
             throw new ApiException(HttpStatus.CONFLICT, "A template with this name already exists");
         });
         SchemaTemplate template = new SchemaTemplate();
+        template.setOwnerId(ownerId);
         template.setName(name);
         template.setDescription(request.description());
         template.setVersion(defaultVersion(request.version()));
@@ -89,6 +95,7 @@ public class SchemaTemplateService {
         repository.saveAll(group);
 
         SchemaTemplate next = new SchemaTemplate();
+        next.setOwnerId(base.getOwnerId());
         next.setGroupId(base.getGroupId());
         next.setName(base.getName());
         next.setDescription(request.description() != null ? request.description() : base.getDescription());
@@ -117,7 +124,7 @@ public class SchemaTemplateService {
         SchemaTemplate template = require(id);
         if (request.name() != null && !request.name().isBlank()) {
             String name = request.name().trim();
-            repository.findFirstByNameIgnoreCase(name).ifPresent(other -> {
+            repository.findFirstByOwnerIdAndNameIgnoreCase(template.getOwnerId(), name).ifPresent(other -> {
                 if (!other.getGroupId().equals(template.getGroupId())) {
                     throw new ApiException(HttpStatus.CONFLICT, "A template with this name already exists");
                 }
@@ -164,8 +171,12 @@ public class SchemaTemplateService {
     // ---------------- Helpers ----------------
 
     private SchemaTemplate require(Long id) {
-        return repository.findById(id)
+        SchemaTemplate template = repository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Template not found"));
+        if (!currentUser.requireUserId().equals(template.getOwnerId())) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Template not found");
+        }
+        return template;
     }
 
     private String defaultVersion(String version) {

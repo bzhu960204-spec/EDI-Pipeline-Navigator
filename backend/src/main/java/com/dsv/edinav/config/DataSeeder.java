@@ -97,13 +97,14 @@ public class DataSeeder implements CommandLineRunner {
         if (stepRepository.count() > 0 || roleRepository.count() > 0) {
             return;
         }
+        Long owner = adminId();
 
-        Long developer = role("Developer", "#1677ff", "EDI map / integration development").getId();
-        Long ba = role("BA", "#52c41a", "Business analysis and specification").getId();
-        Long bim = role("BIM", "#722ed1", "Business integration mapping / QA review").getId();
-        Long cinto = role("CINTO", "#fa8c16", "Deployment and cutover coordination").getId();
+        Long developer = role(owner, "Developer", "#1677ff", "EDI map / integration development").getId();
+        Long ba = role(owner, "BA", "#52c41a", "Business analysis and specification").getId();
+        Long bim = role(owner, "BIM", "#722ed1", "Business integration mapping / QA review").getId();
+        Long cinto = role(owner, "CINTO", "#fa8c16", "Deployment and cutover coordination").getId();
 
-        Long wf = workflow("Standard EDI Delivery",
+        Long wf = workflow(owner, "Standard EDI Delivery",
                 "Starter sub-workflow: analysis \u2192 development \u2192 QA \u2192 deployment.");
 
         Long analysis = step(wf, null, 0, "Requirement Analysis", ba,
@@ -135,7 +136,7 @@ public class DataSeeder implements CommandLineRunner {
         if (orphans.isEmpty()) {
             return;
         }
-        Long legacy = workflow("Legacy Main", "Steps migrated from the original single global workflow.");
+        Long legacy = workflow(adminId(), "Legacy Main", "Steps migrated from the original single global workflow.");
         orphans.forEach(step -> {
             step.setWorkflowId(legacy);
             stepRepository.save(step);
@@ -143,8 +144,14 @@ public class DataSeeder implements CommandLineRunner {
         log.info("Migrated {} legacy step(s) into 'Legacy Main' sub-workflow", orphans.size());
     }
 
-    private Long workflow(String name, String description) {
+    private Long adminId() {
+        return userRepository.findByUsername(appProperties.getAdmin().getUsername())
+                .map(User::getId).orElse(null);
+    }
+
+    private Long workflow(Long ownerId, String name, String description) {
         Workflow workflow = new Workflow();
+        workflow.setOwnerId(ownerId);
         workflow.setName(name);
         workflow.setDescription(description);
         workflow.setStatus(WorkflowStatus.PUBLISHED);
@@ -156,8 +163,9 @@ public class DataSeeder implements CommandLineRunner {
         return workflowRepository.save(saved).getId();
     }
 
-    private BusinessRole role(String name, String color, String description) {
+    private BusinessRole role(Long ownerId, String name, String color, String description) {
         BusinessRole role = new BusinessRole();
+        role.setOwnerId(ownerId);
         role.setName(name);
         role.setColor(color);
         role.setDescription(description);
@@ -202,6 +210,7 @@ public class DataSeeder implements CommandLineRunner {
         template.setName("DSV EDI Standard");
         template.setDescription("Default QA folder structure based on a standard EDIT project.");
         template.setDefault(true);
+        template.setCreatedBy(adminId());
         templateRepository.save(template);
         Long tid = template.getId();
 
@@ -256,6 +265,7 @@ public class DataSeeder implements CommandLineRunner {
         SchemaTemplate template = new SchemaTemplate();
         template.setName("Sub-Workflow Import Skeleton");
         template.setDescription("The canonical JSON skeleton for POST /api/workflow/workflows/import.");
+        template.setOwnerId(adminId());
         template.setVersion("1.0");
         template.setVersionLabel("Initial import from README");
         template.setContent(SUB_WORKFLOW_IMPORT_SKELETON);

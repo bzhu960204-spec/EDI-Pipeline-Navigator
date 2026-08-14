@@ -1,6 +1,7 @@
 package com.dsv.edinav.template;
 
 import com.dsv.edinav.common.ApiException;
+import com.dsv.edinav.security.CurrentUserService;
 import com.dsv.edinav.template.dto.TemplateDto;
 import com.dsv.edinav.template.dto.TemplateNodeDto;
 import com.dsv.edinav.template.dto.TemplateNodeInput;
@@ -21,31 +22,33 @@ public class TemplateService {
 
     private final DirTemplateRepository templateRepository;
     private final DirTemplateNodeRepository nodeRepository;
+    private final CurrentUserService currentUser;
 
     public TemplateService(DirTemplateRepository templateRepository,
-                           DirTemplateNodeRepository nodeRepository) {
+                           DirTemplateNodeRepository nodeRepository,
+                           CurrentUserService currentUser) {
         this.templateRepository = templateRepository;
         this.nodeRepository = nodeRepository;
+        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
     public List<TemplateSummaryDto> list() {
-        return templateRepository.findAllByOrderByNameAsc().stream()
+        return templateRepository.findByCreatedByOrderByNameAsc(currentUser.requireUserId()).stream()
                 .map(t -> new TemplateSummaryDto(t.getId(), t.getName(), t.getDescription(), t.isDefault()))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public TemplateDto get(Long id) {
-        DirTemplate template = templateRepository.findById(id)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Template not found"));
+        DirTemplate template = requireOwned(id);
         return new TemplateDto(template.getId(), template.getName(), template.getDescription(),
                 template.isDefault(), buildNodeTree(id));
     }
 
     @Transactional
     public TemplateDto create(TemplateRequest request, Long createdBy) {
-        if (templateRepository.existsByNameIgnoreCase(request.name().trim())) {
+        if (templateRepository.existsByNameIgnoreCaseAndCreatedBy(request.name().trim(), createdBy)) {
             throw new ApiException(HttpStatus.CONFLICT, "Template name already exists");
         }
         DirTemplate template = new DirTemplate();
@@ -55,7 +58,7 @@ public class TemplateService {
         template.setDefault(request.isDefault());
         templateRepository.save(template);
         if (request.isDefault()) {
-            clearOtherDefaults(template.getId());
+            clearOtherDefaults(template.getId(), createdBy);
         }
         persistNodes(template.getId(), null, request.nodes());
         return get(template.getId());
@@ -63,14 +66,13 @@ public class TemplateService {
 
     @Transactional
     public TemplateDto update(Long id, TemplateRequest request) {
-        DirTemplate template = templateRepository.findById(id)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Template not found"));
+        DirTemplate template = requireOwned(id);
         template.setName(request.name().trim());
         template.setDescription(request.description());
         template.setDefault(request.isDefault());
         templateRepository.save(template);
         if (request.isDefault()) {
-            clearOtherDefaults(id);
+            clearOtherDefaults(id, template.getCreatedBy());
         }
         nodeRepository.deleteByTemplateId(id);
         persistNodes(id, null, request.nodes());
@@ -79,9 +81,7 @@ public class TemplateService {
 
     @Transactional
     public void delete(Long id) {
-        if (!templateRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Template not found");
-        }
+        requireOwned(id);
         nodeRepository.deleteByTemplateId(id);
         templateRepository.deleteById(id);
     }
@@ -102,8 +102,7 @@ public class TemplateService {
     /** Serialises a template into the same shape accepted by import, without database ids. */
     @Transactional(readOnly = true)
     public TemplateRequest export(Long id) {
-        DirTemplate template = templateRepository.findById(id)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Template not found"));
+        DirTemplate template = requireOwned(id);
         return new TemplateRequest(template.getName(), template.getDescription(),
                 template.isDefault(), toInputTree(buildNodeTree(id)));
     }
@@ -120,21 +119,29 @@ public class TemplateService {
     }
 
     public Long resolveTemplateId(Long requested) {
+        Long ownerId = currentUser.requireUserId();
         if (requested != null) {
-            if (!templateRepository.existsById(requested)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Template not found");
-            }
+            requireOwned(requested);
             return requested;
         }
-        return templateRepository.findFirstByIsDefaultTrue()
+        return templateRepository.findFirstByCreatedByAndIsDefaultTrue(ownerId)
                 .map(DirTemplate::getId)
                 .orElse(null);
     }
 
     // ---------------- helpers ----------------
 
-    private void clearOtherDefaults(Long keepId) {
-        templateRepository.findAll().stream()
+    private DirTemplate requireOwned(Long id) {
+        DirTemplate template = templateRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Template not found"));
+        if (!currentUser.requireUserId().equals(template.getCreatedBy())) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Template not found");
+        }
+        return template;
+    }
+
+    private void clearOtherDefaults(Long keepId, Long ownerId) {
+        templateRepository.findByCreatedByOrderByNameAsc(ownerId).stream()
                 .filter(t -> t.isDefault() && !t.getId().equals(keepId))
                 .forEach(t -> {
                     t.setDefault(false);

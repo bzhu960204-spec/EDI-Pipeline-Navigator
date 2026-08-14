@@ -1,12 +1,12 @@
 import { Col, Row, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { fetchRoles } from '../../api/workflow';
-import { isAdmin, useAuthStore } from '../auth/authStore';
+import { useAuthStore } from '../auth/authStore';
 import { RoleManagerPanel } from './RoleManagerPanel';
 import { RoleView } from './RoleView';
 
 export function RolesPage() {
-  const admin = isAdmin(useAuthStore((s) => s.user));
+  const admin = !!useAuthStore((s) => s.user);
   const { data: roles = [] } = useQuery({ queryKey: ['roles'], queryFn: fetchRoles });
 
   return (

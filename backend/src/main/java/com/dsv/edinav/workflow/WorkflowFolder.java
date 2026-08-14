@@ -16,7 +16,10 @@ public class WorkflowFolder {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 120)
+    /** The user who owns this folder; folders are private per user. */
+    private Long ownerId;
+
+    @Column(nullable = false, length = 120)
     private String name;
 
     /** Hex color used for the folder header chip in the UI, e.g. #1677ff. */
@@ -31,6 +34,9 @@ public class WorkflowFolder {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public Long getOwnerId() { return ownerId; }
+    public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }

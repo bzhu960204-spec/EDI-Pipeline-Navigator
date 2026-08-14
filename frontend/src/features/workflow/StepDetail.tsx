@@ -178,6 +178,73 @@ export function StepDetail({
     group.items.push({ t, index });
   });
 
+  // Stable per-target ordinal so multiple co-fire groups arriving into this step are told apart.
+  const coFireGroupIds = Array.from(
+    new Set(
+      incoming
+        .map((inc) => inc.transition.coFireGroupId)
+        .filter((id): id is number => id != null),
+    ),
+  ).sort((a, b) => a - b);
+  const coFireOrdinal = new Map(coFireGroupIds.map((id, idx) => [id, idx + 1]));
+  const hasMultipleCoFireGroups = coFireGroupIds.length > 1;
+
+  const renderIncomingRow = (inc: IncomingRef, i: number) => (
+    <Space
+      key={inc.transition.id}
+      style={{ justifyContent: 'space-between', width: '100%', padding: '2px 6px', ...highlightStyle(pickerDirection === 'previous' && pickerIndex === i) }}
+    >
+      <Space>
+        {inc.transition.label && <Tag>{inc.transition.label}</Tag>}
+        {inc.isRollback && <Tag color="red">rollback</Tag>}
+        {inc.isSelfLoop && <Tag color="orange">self-loop</Tag>}
+        <ArrowLeftOutlined />
+        <Button type="link" style={{ padding: 0 }} onClick={() => onNavigate(inc.fromStep.id)}>
+          {inc.fromStep.name}
+        </Button>
+      </Space>
+    </Space>
+  );
+
+  const renderIncoming = () => {
+    const seen = new Set<number>();
+    const blocks: React.ReactNode[] = [];
+    incoming.forEach((inc, i) => {
+      const gid = inc.transition.coFireGroupId;
+      if (gid == null) {
+        blocks.push(renderIncomingRow(inc, i));
+        return;
+      }
+      if (seen.has(gid)) return;
+      seen.add(gid);
+      const members = incoming
+        .map((x, idx) => ({ inc: x, idx }))
+        .filter((m) => m.inc.transition.coFireGroupId === gid);
+      blocks.push(
+        <div
+          key={`cofire-${gid}`}
+          style={{ border: '1px solid #ffbb96', borderRadius: 6, padding: '6px 8px', background: 'rgba(255,187,150,0.1)', width: '100%' }}
+        >
+          <Space size={4} style={{ marginBottom: 4 }}>
+            <Tag color="volcano" style={{ marginInlineEnd: 0 }}>co-fire</Tag>
+            {hasMultipleCoFireGroups && (
+              <Tag color="volcano" bordered={false} style={{ marginInlineEnd: 0 }}>
+                #{coFireOrdinal.get(gid)}
+              </Tag>
+            )}
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              all must fire
+            </Typography.Text>
+          </Space>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {members.map((m) => renderIncomingRow(m.inc, m.idx))}
+          </Space>
+        </div>,
+      );
+    });
+    return blocks;
+  };
+
   const tabItems: TabsProps['items'] = [
     {
       key: 'next',
@@ -280,23 +347,7 @@ export function StepDetail({
           </Typography.Text>
         ) : (
           <Space direction="vertical" style={{ width: '100%' }}>
-            {incoming.map((inc, i) => (
-              <Space
-                key={inc.transition.id}
-                style={{ justifyContent: 'space-between', width: '100%', padding: '2px 6px', ...highlightStyle(pickerDirection === 'previous' && pickerIndex === i) }}
-              >
-                <Space>
-                  {inc.transition.label && <Tag>{inc.transition.label}</Tag>}
-                  {inc.transition.coFireGroupId != null && <Tag color="volcano">co-fire</Tag>}
-                  {inc.isRollback && <Tag color="red">rollback</Tag>}
-                  {inc.isSelfLoop && <Tag color="orange">self-loop</Tag>}
-                  <ArrowLeftOutlined />
-                  <Button type="link" style={{ padding: 0 }} onClick={() => onNavigate(inc.fromStep.id)}>
-                    {inc.fromStep.name}
-                  </Button>
-                </Space>
-              </Space>
-            ))}
+            {renderIncoming()}
           </Space>
         ),
     },

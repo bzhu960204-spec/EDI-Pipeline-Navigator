@@ -8,7 +8,6 @@ import com.dsv.edinav.schematemplate.dto.UpdateTemplateMetadataRequest;
 import com.dsv.edinav.security.AppUserPrincipal;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -48,14 +47,12 @@ public class SchemaTemplateController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
     public SchemaTemplateDto create(@Valid @RequestBody CreateSchemaTemplateRequest request,
                                     @AuthenticationPrincipal AppUserPrincipal principal) {
         return service.create(request, principal.getUsername());
     }
 
     @PostMapping("/{id}/versions")
-    @PreAuthorize("hasRole('ADMIN')")
     public SchemaTemplateDto createVersion(@PathVariable Long id,
                                            @Valid @RequestBody CreateTemplateVersionRequest request,
                                            @AuthenticationPrincipal AppUserPrincipal principal) {
@@ -63,7 +60,6 @@ public class SchemaTemplateController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     public SchemaTemplateDto update(@PathVariable Long id,
                                     @Valid @RequestBody UpdateTemplateMetadataRequest request,
                                     @AuthenticationPrincipal AppUserPrincipal principal) {
@@ -71,13 +67,11 @@ public class SchemaTemplateController {
     }
 
     @PutMapping("/{id}/current")
-    @PreAuthorize("hasRole('ADMIN')")
     public SchemaTemplateDto setCurrent(@PathVariable Long id) {
         return service.setCurrent(id);
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
         service.delete(id);

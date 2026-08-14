@@ -65,7 +65,7 @@ import {
   type WorkflowStatus,
 } from '../../api/workflow';
 import { extractErrorMessage } from '../../api/client';
-import { isAdmin, useAuthStore } from '../auth/authStore';
+import { useAuthStore } from '../auth/authStore';
 import { FolderManagerPanel } from './FolderManagerPanel';
 import { colorForTag } from './tagColor';
 import { DropZone, dragRowComponents } from './workflowDnd';
@@ -98,7 +98,7 @@ export function SubWorkflowsPage() {
   const { message } = AntApp.useApp();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const admin = isAdmin(useAuthStore((s) => s.user));
+  const admin = !!useAuthStore((s) => s.user);
   const [form] = Form.useForm<FormValues>();
 
   const [editing, setEditing] = useState<Workflow | null | undefined>(undefined);

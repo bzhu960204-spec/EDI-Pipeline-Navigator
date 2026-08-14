@@ -32,8 +32,8 @@ import {
   type WorkflowStep,
 } from '../../api/workflow';
 import { extractErrorMessage } from '../../api/client';
-import { isAdmin, useAuthStore } from '../auth/authStore';
-import { buildIncomingIndex, findStep } from './workflowUtils';
+import { useAuthStore } from '../auth/authStore';
+import { buildIncomingIndex, findStep, sanitizeFileName } from './workflowUtils';
 import { useFlowNavigation } from './useFlowNavigation';
 import { colorForTag } from './tagColor';
 import { StepDetail } from './StepDetail';
@@ -44,6 +44,7 @@ import { PhaseManagerPanel } from './PhaseManagerPanel';
 import { WorkflowGraph } from './WorkflowGraph';
 import { VersionManagerModal } from './VersionManagerModal';
 import { toPhaseGroupedTreeData, toTreeData } from './workflowTreeData';
+import { buildWorkflowHtml } from './workflowDocExport';
 
 type ViewMode = 'tree' | 'graph';
 type TreeGrouping = 'hierarchy' | 'phase';
@@ -63,7 +64,7 @@ export function WorkflowPage() {
   const returnTo = (location.state as { returnTo?: string } | null)?.returnTo ?? '/workflow';
   const { id } = useParams();
   const workflowId = Number(id);
-  const admin = isAdmin(useAuthStore((s) => s.user));
+  const admin = !!useAuthStore((s) => s.user);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [view, setView] = useState<ViewMode>('tree');
@@ -75,8 +76,10 @@ export function WorkflowPage() {
   const [phaseManagerOpen, setPhaseManagerOpen] = useState(false);
   const [treeGroup, setTreeGroup] = useState<TreeGrouping>('phase');
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'html' | 'json'>('html');
   const [exportIncludePhases, setExportIncludePhases] = useState(false);
   const [exportIncludeReviews, setExportIncludeReviews] = useState(false);
+  const [exportIncludeFlags, setExportIncludeFlags] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [updateText, setUpdateText] = useState('');
   const [versionsOpen, setVersionsOpen] = useState(false);
@@ -300,7 +303,7 @@ export function WorkflowPage() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `${(workflow?.name ?? 'workflow').replace(/[^\w.-]+/g, '_')}.json`;
+      anchor.download = `${sanitizeFileName(workflow?.name)}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
       setExportOpen(false);
@@ -308,6 +311,29 @@ export function WorkflowPage() {
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to export workflow')),
   });
+
+  const exportHtml = () => {
+    if (!workflow) return;
+    const html = buildWorkflowHtml(workflow, tree, phases, {
+      groupByPhase: exportIncludePhases,
+      includeReviews: exportIncludeReviews,
+      includeFlags: exportIncludeFlags,
+    });
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${sanitizeFileName(workflow.name)}.html`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setExportOpen(false);
+    message.success('Workflow exported');
+  };
+
+  const submitExport = () => {
+    if (exportFormat === 'html') exportHtml();
+    else runExport.mutate({ includePhases: exportIncludePhases, includeReviews: exportIncludeReviews });
+  };
 
   const runUpdate = useMutation({
     mutationFn: (payload: ImportWorkflowPayload) => updateWorkflowFromImport(workflowId, payload),
@@ -631,22 +657,43 @@ export function WorkflowPage() {
 
       <Modal
         open={exportOpen}
-        title="Export workflow as JSON"
+        title="Export workflow"
         okText="Download"
         confirmLoading={runExport.isPending}
         onCancel={() => setExportOpen(false)}
-        onOk={() => runExport.mutate({ includePhases: exportIncludePhases, includeReviews: exportIncludeReviews })}
+        onOk={submitExport}
       >
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <Typography.Text type="secondary">
-            Steps, roles and branching are always included. Phases and reviews are optional and off by default.
-          </Typography.Text>
+          <Segmented
+            block
+            value={exportFormat}
+            onChange={(v) => setExportFormat(v as 'html' | 'json')}
+            options={[
+              { label: 'HTML (readable)', value: 'html' },
+              { label: 'JSON (re-import)', value: 'json' },
+            ]}
+          />
+          {exportFormat === 'html' ? (
+            <Typography.Text type="secondary">
+              A self-contained, printable document for sharing. Open it in any browser, or use the
+              browser&apos;s Print dialog to save as PDF.
+            </Typography.Text>
+          ) : (
+            <Typography.Text type="secondary">
+              Steps, roles and branching are always included. Phases and reviews are optional and off by default.
+            </Typography.Text>
+          )}
           <Checkbox checked={exportIncludePhases} onChange={(e) => setExportIncludePhases(e.target.checked)}>
-            Include phases
+            {exportFormat === 'html' ? 'Group steps by phase' : 'Include phases'}
           </Checkbox>
           <Checkbox checked={exportIncludeReviews} onChange={(e) => setExportIncludeReviews(e.target.checked)}>
             Include reviews
           </Checkbox>
+          {exportFormat === 'html' && (
+            <Checkbox checked={exportIncludeFlags} onChange={(e) => setExportIncludeFlags(e.target.checked)}>
+              Include personal flags
+            </Checkbox>
+          )}
         </Space>
       </Modal>
 

@@ -9,9 +9,13 @@ public interface SchemaTemplateRepository extends JpaRepository<SchemaTemplate, 
 
     List<SchemaTemplate> findByIsCurrentTrueOrderByNameAsc();
 
+    List<SchemaTemplate> findByOwnerIdAndIsCurrentTrueOrderByNameAsc(Long ownerId);
+
     List<SchemaTemplate> findByGroupIdOrderByCreatedAtAsc(Long groupId);
 
     Optional<SchemaTemplate> findFirstByNameIgnoreCase(String name);
+
+    Optional<SchemaTemplate> findFirstByOwnerIdAndNameIgnoreCase(Long ownerId, String name);
 
     boolean existsByGroupIdAndVersionIgnoreCase(Long groupId, String version);
 }

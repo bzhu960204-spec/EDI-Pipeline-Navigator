@@ -13,6 +13,7 @@ import {
   ContainerOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore, isAdmin } from '../features/auth/authStore';
 import { ThemeSwitcher } from '../theme/ThemeSwitcher';
 
@@ -21,6 +22,7 @@ const { Header, Sider, Content } = Layout;
 export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const { user, clear } = useAuthStore();
 
   const selectedKey = useMemo(() => {
@@ -57,6 +59,7 @@ export function AppLayout() {
 
   const handleLogout = () => {
     clear();
+    queryClient.clear();
     navigate('/login', { replace: true });
   };
 

@@ -28,7 +28,7 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { extractErrorMessage } from '../../api/client';
-import { isAdmin, useAuthStore } from '../auth/authStore';
+import { useAuthStore } from '../auth/authStore';
 import {
   createSchemaTemplate,
   createSchemaTemplateVersion,
@@ -50,7 +50,7 @@ type MetaForm = { name: string; version: string; description?: string; versionLa
 export function SchemaTemplatesPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
-  const admin = isAdmin(user);
+  const admin = !!user;
 
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);

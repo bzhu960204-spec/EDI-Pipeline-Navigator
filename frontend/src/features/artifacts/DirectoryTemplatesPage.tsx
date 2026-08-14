@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   App as AntApp,
+  Breadcrumb,
   Button,
   Card,
   Col,
@@ -15,6 +16,7 @@ import {
   Spin,
   Switch,
   Tag,
+  Tooltip,
   Tree,
   Typography,
   Upload,
@@ -23,8 +25,10 @@ import type { DataNode } from 'antd/es/tree';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
+  CopyOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  FileTextOutlined,
   FolderAddOutlined,
   FolderOutlined,
   ImportOutlined,
@@ -47,7 +51,7 @@ import {
   type TemplatePayload,
 } from '../../api/templates';
 import { extractErrorMessage } from '../../api/client';
-import { isAdmin, useAuthStore } from '../auth/authStore';
+import { useAuthStore } from '../auth/authStore';
 
 interface EditNode {
   key: string;
@@ -77,12 +81,23 @@ function toInput(nodes: EditNode[]): TemplateNodeInput[] {
 }
 
 function toTreeData(nodes: EditNode[]): DataNode[] {
-  return nodes.map((n) => ({
-    key: n.key,
-    icon: <FolderOutlined />,
-    title: n.name.trim() || <Typography.Text type="danger">(unnamed)</Typography.Text>,
-    children: n.children.length ? toTreeData(n.children) : undefined,
-  }));
+  return nodes.map((n) => {
+    const name = n.name.trim();
+    const purpose = n.description?.trim();
+    const title = (
+      <Tooltip placement="right" title={purpose || 'No purpose set yet'}>
+        <span style={{ color: purpose ? undefined : 'rgba(255,255,255,0.45)' }}>
+          {name || <Typography.Text type="danger">(unnamed)</Typography.Text>}
+        </span>
+      </Tooltip>
+    );
+    return {
+      key: n.key,
+      icon: <FolderOutlined />,
+      title,
+      children: n.children.length ? toTreeData(n.children) : undefined,
+    };
+  });
 }
 
 function collectKeys(nodes: EditNode[]): string[] {
@@ -96,6 +111,67 @@ function findNode(nodes: EditNode[], key: string): EditNode | null {
     if (found) return found;
   }
   return null;
+}
+
+/** Returns the trail of folder names from the root down to the node with `key`. */
+function findPath(nodes: EditNode[], key: string, trail: string[] = []): string[] | null {
+  for (const n of nodes) {
+    const step = [...trail, n.name.trim() || '(unnamed)'];
+    if (n.key === key) return step;
+    const found = findPath(n.children, key, step);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Counts named folders that have no purpose description. */
+function countMissingPurpose(nodes: EditNode[]): number {
+  return nodes.reduce(
+    (acc, n) =>
+      acc + (n.name.trim() && !n.description?.trim() ? 1 : 0) + countMissingPurpose(n.children),
+    0,
+  );
+}
+
+function treeToMarkdownLines(nodes: EditNode[], depth: number): string[] {
+  return nodes.flatMap((n) => {
+    const indent = '  '.repeat(depth);
+    const name = n.name.trim() || '(unnamed)';
+    const purpose = n.description?.trim();
+    const suffix = purpose ? ` \u2014 ${purpose}` : '';
+    const line = `${indent}- **${name}**${suffix}`;
+    return [line, ...treeToMarkdownLines(n.children, depth + 1)];
+  });
+}
+
+function templateToMarkdown(name: string, description: string, nodes: EditNode[]): string {
+  const lines = [`# ${name.trim() || 'Untitled template'}`];
+  if (description.trim()) lines.push('', description.trim());
+  lines.push('', ...treeToMarkdownLines(nodes, 0));
+  return lines.join('\n');
+}
+
+function DocNodes({ nodes }: Readonly<{ nodes: EditNode[] }>) {
+  return (
+    <ul style={{ margin: 0, paddingLeft: 18 }}>
+      {nodes.map((n) => {
+        const purpose = n.description?.trim();
+        return (
+          <li key={n.key} style={{ marginBottom: 6 }}>
+            <Typography.Text strong>{n.name.trim() || '(unnamed)'}</Typography.Text>
+            {purpose ? (
+              <Typography.Text type="secondary"> — {purpose}</Typography.Text>
+            ) : (
+              <Typography.Text type="secondary" italic>
+                {' — no purpose'}
+              </Typography.Text>
+            )}
+            {n.children.length > 0 && <DocNodes nodes={n.children} />}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 function mapNode(nodes: EditNode[], key: string, fn: (n: EditNode) => EditNode): EditNode[] {
@@ -128,10 +204,108 @@ function moveSibling(nodes: EditNode[], key: string, dir: -1 | 1): EditNode[] {
   return nodes.map((n) => ({ ...n, children: moveSibling(n.children, key, dir) }));
 }
 
+interface FolderDetailsProps {
+  node: EditNode;
+  admin: boolean;
+  path: string[] | null;
+  onPatch: (patch: Partial<EditNode>) => void;
+  onAddSubfolder: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onDelete: () => void;
+}
+
+function FolderDetails({
+  node,
+  admin,
+  path,
+  onPatch,
+  onAddSubfolder,
+  onMoveUp,
+  onMoveDown,
+  onDelete,
+}: Readonly<FolderDetailsProps>) {
+  const purpose = node.description?.trim();
+
+  const renderPurpose = () => {
+    if (admin) {
+      return (
+        <Input.TextArea
+          value={node.description ?? ''}
+          maxLength={400}
+          showCount
+          autoSize={{ minRows: 3, maxRows: 10 }}
+          placeholder="What this folder is used for"
+          style={{ marginBottom: 18 }}
+          onChange={(e) => onPatch({ description: e.target.value })}
+        />
+      );
+    }
+    if (purpose) {
+      return (
+        <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
+          {purpose}
+        </Typography.Paragraph>
+      );
+    }
+    return (
+      <Typography.Text type="secondary" italic>
+        No purpose has been set for this folder.
+      </Typography.Text>
+    );
+  };
+
+  return (
+    <Card size="small" title="Folder details">
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        {path && path.length > 0 && (
+          <Breadcrumb style={{ fontSize: 12 }} items={path.map((p) => ({ title: p }))} />
+        )}
+        <div>
+          <Typography.Text type="secondary">Folder name</Typography.Text>
+          {admin ? (
+            <Input
+              value={node.name}
+              maxLength={200}
+              onChange={(e) => onPatch({ name: e.target.value })}
+            />
+          ) : (
+            <div>
+              <Typography.Text strong>{node.name.trim() || '(unnamed)'}</Typography.Text>
+            </div>
+          )}
+        </div>
+        <div>
+          <Typography.Text type="secondary">Purpose</Typography.Text>
+          {renderPurpose()}
+        </div>
+        {admin && (
+          <Space wrap>
+            <Button size="small" icon={<FolderAddOutlined />} onClick={onAddSubfolder}>
+              Add subfolder
+            </Button>
+            <Button size="small" icon={<ArrowUpOutlined />} onClick={onMoveUp}>
+              Up
+            </Button>
+            <Button size="small" icon={<ArrowDownOutlined />} onClick={onMoveDown}>
+              Down
+            </Button>
+            <Popconfirm title="Delete this folder and its subfolders?" onConfirm={onDelete}>
+              <Button size="small" danger icon={<DeleteOutlined />}>
+                Delete
+              </Button>
+            </Popconfirm>
+          </Space>
+        )}
+      </Space>
+    </Card>
+  );
+}
+
 export function DirectoryTemplatesPage() {
   const { message } = AntApp.useApp();
   const queryClient = useQueryClient();
-  const admin = isAdmin(useAuthStore((s) => s.user));
+  const admin = !!useAuthStore((s) => s.user);
 
   const [selectedId, setSelectedId] = useState<number | 'new' | null>(null);
   const [name, setName] = useState('');
@@ -144,6 +318,7 @@ export function DirectoryTemplatesPage() {
   const [importText, setImportText] = useState('');
   const [updateOpen, setUpdateOpen] = useState(false);
   const [updateText, setUpdateText] = useState('');
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['templates'],
@@ -271,6 +446,8 @@ export function DirectoryTemplatesPage() {
 
   const treeData = useMemo(() => toTreeData(tree), [tree]);
   const selectedNode = selectedNodeKey ? findNode(tree, selectedNodeKey) : null;
+  const nodePath = selectedNodeKey ? findPath(tree, selectedNodeKey) : null;
+  const missingPurposeCount = useMemo(() => countMissingPurpose(tree), [tree]);
 
   const patchNode = (key: string, patch: Partial<EditNode>) =>
     setTree((prev) => mapNode(prev, key, (n) => ({ ...n, ...patch })));
@@ -302,6 +479,27 @@ export function DirectoryTemplatesPage() {
       isDefault,
       nodes: toInput(tree),
     });
+  };
+
+  const buildMarkdown = () => templateToMarkdown(name, description, tree);
+
+  const copyMarkdown = async () => {
+    try {
+      await navigator.clipboard.writeText(buildMarkdown());
+      message.success('Copied as Markdown');
+    } catch {
+      message.error('Copy failed');
+    }
+  };
+
+  const downloadMarkdown = () => {
+    const blob = new Blob([buildMarkdown()], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${(name || 'template').replace(/[^\w.-]+/g, '_')}.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -365,49 +563,61 @@ export function DirectoryTemplatesPage() {
         </Col>
 
         <Col xs={24} lg={16}>
-          {selectedId == null ? (
-            <Card>
-              <Empty description="Select a template to view its directory structure, or create a new one." />
-            </Card>
-          ) : detailLoading && selectedId !== 'new' ? (
-            <Card>
-              <Spin />
-            </Card>
-          ) : (
+          {(() => {
+            if (selectedId == null) {
+              return (
+                <Card>
+                  <Empty description="Select a template to view its directory structure, or create a new one." />
+                </Card>
+              );
+            }
+            if (detailLoading && selectedId !== 'new') {
+              return (
+                <Card>
+                  <Spin />
+                </Card>
+              );
+            }
+            return (
             <Card
               title={selectedId === 'new' ? 'New template' : 'Edit template'}
               extra={
-                admin && (
-                  <Space>
-                    {typeof selectedId === 'number' && (
-                      <>
-                        <Button
-                          icon={<DownloadOutlined />}
-                          loading={runExport.isPending}
-                          onClick={() => runExport.mutate(selectedId)}
-                        >
-                          Export
+                <Space>
+                  {selectedId !== 'new' && (
+                    <Button icon={<FileTextOutlined />} onClick={() => setPreviewOpen(true)}>
+                      Preview
+                    </Button>
+                  )}
+                  {admin && typeof selectedId === 'number' && (
+                    <>
+                      <Button
+                        icon={<DownloadOutlined />}
+                        loading={runExport.isPending}
+                        onClick={() => runExport.mutate(selectedId)}
+                      >
+                        Export
+                      </Button>
+                      <Button
+                        icon={<ImportOutlined />}
+                        onClick={() => {
+                          setUpdateText('');
+                          setUpdateOpen(true);
+                        }}
+                      >
+                        Update from JSON
+                      </Button>
+                      <Popconfirm
+                        title="Delete this template?"
+                        description="Artifacts already created keep their folders."
+                        onConfirm={() => remove.mutate(selectedId)}
+                      >
+                        <Button danger icon={<DeleteOutlined />}>
+                          Delete
                         </Button>
-                        <Button
-                          icon={<ImportOutlined />}
-                          onClick={() => {
-                            setUpdateText('');
-                            setUpdateOpen(true);
-                          }}
-                        >
-                          Update from JSON
-                        </Button>
-                        <Popconfirm
-                          title="Delete this template?"
-                          description="Artifacts already created keep their folders."
-                          onConfirm={() => remove.mutate(selectedId)}
-                        >
-                          <Button danger icon={<DeleteOutlined />}>
-                            Delete
-                          </Button>
-                        </Popconfirm>
-                      </>
-                    )}
+                      </Popconfirm>
+                    </>
+                  )}
+                  {admin && (
                     <Button
                       type="primary"
                       icon={<SaveOutlined />}
@@ -416,8 +626,8 @@ export function DirectoryTemplatesPage() {
                     >
                       Save
                     </Button>
-                  </Space>
-                )
+                  )}
+                </Space>
               }
             >
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -449,7 +659,14 @@ export function DirectoryTemplatesPage() {
               </Space>
 
               <Divider orientation="left" style={{ marginTop: 20 }}>
-                Folders
+                <Space size="small">
+                  Folders
+                  {missingPurposeCount > 0 && (
+                    <Tooltip title="Folders without a purpose description">
+                      <Tag color="orange">{missingPurposeCount} missing purpose</Tag>
+                    </Tooltip>
+                  )}
+                </Space>
               </Divider>
 
               <Row gutter={16}>
@@ -481,65 +698,16 @@ export function DirectoryTemplatesPage() {
 
                 <Col xs={24} md={11}>
                   {selectedNode ? (
-                    <Card size="small" title="Folder details">
-                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                        <div>
-                          <Typography.Text type="secondary">Folder name</Typography.Text>
-                          <Input
-                            value={selectedNode.name}
-                            disabled={!admin}
-                            maxLength={200}
-                            onChange={(e) => patchNode(selectedNode.key, { name: e.target.value })}
-                          />
-                        </div>
-                        <div>
-                          <Typography.Text type="secondary">Purpose</Typography.Text>
-                          <Input.TextArea
-                            value={selectedNode.description ?? ''}
-                            disabled={!admin}
-                            maxLength={400}
-                            autoSize={{ minRows: 2, maxRows: 4 }}
-                            placeholder="What this folder is used for"
-                            onChange={(e) =>
-                              patchNode(selectedNode.key, { description: e.target.value })
-                            }
-                          />
-                        </div>
-                        {admin && (
-                          <Space wrap>
-                            <Button
-                              size="small"
-                              icon={<FolderAddOutlined />}
-                              onClick={() => handleAddFolder(selectedNode.key)}
-                            >
-                              Add subfolder
-                            </Button>
-                            <Button
-                              size="small"
-                              icon={<ArrowUpOutlined />}
-                              onClick={() => setTree((p) => moveSibling(p, selectedNode.key, -1))}
-                            >
-                              Up
-                            </Button>
-                            <Button
-                              size="small"
-                              icon={<ArrowDownOutlined />}
-                              onClick={() => setTree((p) => moveSibling(p, selectedNode.key, 1))}
-                            >
-                              Down
-                            </Button>
-                            <Popconfirm
-                              title="Delete this folder and its subfolders?"
-                              onConfirm={() => handleDeleteNode(selectedNode.key)}
-                            >
-                              <Button size="small" danger icon={<DeleteOutlined />}>
-                                Delete
-                              </Button>
-                            </Popconfirm>
-                          </Space>
-                        )}
-                      </Space>
-                    </Card>
+                    <FolderDetails
+                      node={selectedNode}
+                      admin={admin}
+                      path={nodePath}
+                      onPatch={(patch) => patchNode(selectedNode.key, patch)}
+                      onAddSubfolder={() => handleAddFolder(selectedNode.key)}
+                      onMoveUp={() => setTree((p) => moveSibling(p, selectedNode.key, -1))}
+                      onMoveDown={() => setTree((p) => moveSibling(p, selectedNode.key, 1))}
+                      onDelete={() => handleDeleteNode(selectedNode.key)}
+                    />
                   ) : (
                     <Empty
                       image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -549,7 +717,8 @@ export function DirectoryTemplatesPage() {
                 </Col>
               </Row>
             </Card>
-          )}
+            );
+          })()}
         </Col>
       </Row>
 
@@ -621,6 +790,38 @@ export function DirectoryTemplatesPage() {
             Replaces this template's name, description and entire folder tree.
           </Typography.Text>
         </Space>
+      </Modal>
+
+      <Modal
+        open={previewOpen}
+        title="Directory documentation"
+        width={720}
+        onCancel={() => setPreviewOpen(false)}
+        footer={[
+          <Button key="copy" icon={<CopyOutlined />} onClick={copyMarkdown}>
+            Copy as Markdown
+          </Button>,
+          <Button key="download" icon={<DownloadOutlined />} onClick={downloadMarkdown}>
+            Download .md
+          </Button>,
+          <Button key="close" type="primary" onClick={() => setPreviewOpen(false)}>
+            Close
+          </Button>,
+        ]}
+      >
+        <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
+          <Typography.Title level={5} style={{ marginTop: 0 }}>
+            {name.trim() || 'Untitled template'}
+          </Typography.Title>
+          {description.trim() && (
+            <Typography.Paragraph type="secondary">{description.trim()}</Typography.Paragraph>
+          )}
+          {tree.length === 0 ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No folders defined" />
+          ) : (
+            <DocNodes nodes={tree} />
+          )}
+        </div>
       </Modal>
     </div>
   );

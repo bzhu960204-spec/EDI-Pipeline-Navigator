@@ -7,9 +7,12 @@ import java.util.List;
 public interface WorkflowRepository extends JpaRepository<Workflow, Long> {
     List<Workflow> findAllByOrderByOrderIndexAsc();
     List<Workflow> findByIsCurrentTrueOrderByOrderIndexAsc();
+    List<Workflow> findByOwnerIdAndIsCurrentTrueOrderByOrderIndexAsc(Long ownerId);
     List<Workflow> findByGroupIdOrderByVersionAsc(Long groupId);
     boolean existsByNameIgnoreCase(String name);
     boolean existsByNameIgnoreCaseAndGroupIdNot(String name, Long groupId);
+    boolean existsByNameIgnoreCaseAndOwnerId(String name, Long ownerId);
+    boolean existsByNameIgnoreCaseAndOwnerIdAndGroupIdNot(String name, Long ownerId, Long groupId);
 
     default int nextOrderIndex() {
         List<Workflow> all = findAllByOrderByOrderIndexAsc();

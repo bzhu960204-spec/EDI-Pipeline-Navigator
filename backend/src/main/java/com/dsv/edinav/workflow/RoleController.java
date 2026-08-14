@@ -5,7 +5,6 @@ import com.dsv.edinav.workflow.dto.BusinessRoleRequest;
 import com.dsv.edinav.workflow.dto.WorkflowStepDto;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -41,19 +40,16 @@ public class RoleController {
     }
 
     @PostMapping("/roles")
-    @PreAuthorize("hasRole('ADMIN')")
     public BusinessRoleDto createRole(@Valid @RequestBody BusinessRoleRequest request) {
         return businessRoleService.createRole(request);
     }
 
     @PutMapping("/roles/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     public BusinessRoleDto updateRole(@PathVariable Long id, @Valid @RequestBody BusinessRoleRequest request) {
         return businessRoleService.updateRole(id, request);
     }
 
     @DeleteMapping("/roles/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteRole(@PathVariable Long id) {
         businessRoleService.deleteRole(id);

@@ -6,7 +6,6 @@ import com.dsv.edinav.template.dto.TemplateRequest;
 import com.dsv.edinav.template.dto.TemplateSummaryDto;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,14 +40,12 @@ public class TemplateController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
     public TemplateDto create(@Valid @RequestBody TemplateRequest request,
                               @AuthenticationPrincipal AppUserPrincipal principal) {
         return templateService.create(request, principal.getId());
     }
 
     @PostMapping("/import")
-    @PreAuthorize("hasRole('ADMIN')")
     public TemplateDto importTemplate(@Valid @RequestBody TemplateRequest request,
                                       @AuthenticationPrincipal AppUserPrincipal principal) {
         return templateService.importNew(request, principal.getId());
@@ -60,19 +57,16 @@ public class TemplateController {
     }
 
     @PutMapping("/{id}/import")
-    @PreAuthorize("hasRole('ADMIN')")
     public TemplateDto updateFromImport(@PathVariable Long id, @Valid @RequestBody TemplateRequest request) {
         return templateService.importUpdate(id, request);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     public TemplateDto update(@PathVariable Long id, @Valid @RequestBody TemplateRequest request) {
         return templateService.update(id, request);
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
         templateService.delete(id);

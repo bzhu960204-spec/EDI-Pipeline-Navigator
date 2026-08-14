@@ -15,7 +15,10 @@ public class BusinessRole {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 80)
+    /** The user who owns this role; roles are private per user. */
+    private Long ownerId;
+
+    @Column(nullable = false, length = 80)
     private String name;
 
     /** Hex color used for the role tag in the UI, e.g. #1677ff. */
@@ -27,6 +30,9 @@ public class BusinessRole {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public Long getOwnerId() { return ownerId; }
+    public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }

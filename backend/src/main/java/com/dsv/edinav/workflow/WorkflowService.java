@@ -2,6 +2,7 @@ package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.common.ApiException;
 import com.dsv.edinav.artifact.ArtifactRepository;
+import com.dsv.edinav.security.CurrentUserService;
 import com.dsv.edinav.workflow.dto.BusinessRoleDto;
 import com.dsv.edinav.workflow.dto.CoFireGroupRequest;
 import com.dsv.edinav.workflow.dto.CreateStepRequest;
@@ -47,6 +48,7 @@ public class WorkflowService {
     private final ArtifactRepository artifactRepository;
     private final StepReviewRepository reviewRepository;
     private final StepFlagRepository flagRepository;
+    private final CurrentUserService currentUser;
 
     /** Personal importance levels a step may be flagged with; anything else is rejected. */
     private static final Set<String> ALLOWED_FLAG_LEVELS = Set.of("critical", "important", "review-later");
@@ -61,7 +63,8 @@ public class WorkflowService {
                            WorkflowFolderRepository folderRepository,
                            ArtifactRepository artifactRepository,
                            StepReviewRepository reviewRepository,
-                           StepFlagRepository flagRepository) {
+                           StepFlagRepository flagRepository,
+                           CurrentUserService currentUser) {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
         this.transitionRepository = transitionRepository;
@@ -73,13 +76,14 @@ public class WorkflowService {
         this.artifactRepository = artifactRepository;
         this.reviewRepository = reviewRepository;
         this.flagRepository = flagRepository;
+        this.currentUser = currentUser;
     }
 
     // ---------------- Workflows (containers) ----------------
 
     @Transactional(readOnly = true)
     public List<WorkflowDto> getWorkflows() {
-        return workflowRepository.findByIsCurrentTrueOrderByOrderIndexAsc().stream()
+        return workflowRepository.findByOwnerIdAndIsCurrentTrueOrderByOrderIndexAsc(currentUser.requireUserId()).stream()
                 .map(this::toWorkflowDto).toList();
     }
 
@@ -98,10 +102,12 @@ public class WorkflowService {
 
     @Transactional
     public WorkflowDto createWorkflow(WorkflowRequest request) {
-        if (workflowRepository.existsByNameIgnoreCase(request.name().trim())) {
+        Long ownerId = currentUser.requireUserId();
+        if (workflowRepository.existsByNameIgnoreCaseAndOwnerId(request.name().trim(), ownerId)) {
             throw new ApiException(HttpStatus.CONFLICT, "Workflow name already exists");
         }
         Workflow workflow = new Workflow();
+        workflow.setOwnerId(ownerId);
         workflow.setName(request.name().trim());
         workflow.setDescription(request.description());
         workflow.setStatus(request.status() == null ? WorkflowStatus.DRAFT : parseStatus(request.status()));
@@ -147,7 +153,7 @@ public class WorkflowService {
     public WorkflowDto updateWorkflow(Long id, WorkflowRequest request) {
         Workflow workflow = requireWorkflow(id);
         String name = request.name().trim();
-        if (workflowRepository.existsByNameIgnoreCaseAndGroupIdNot(name, workflow.getGroupId())) {
+        if (workflowRepository.existsByNameIgnoreCaseAndOwnerIdAndGroupIdNot(name, workflow.getOwnerId(), workflow.getGroupId())) {
             throw new ApiException(HttpStatus.CONFLICT, "Workflow name already exists");
         }
         workflow.setName(name);
@@ -200,8 +206,20 @@ public class WorkflowService {
     }
 
     Workflow requireWorkflow(Long id) {
-        return workflowRepository.findById(id)
+        Workflow workflow = workflowRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Workflow not found"));
+        if (!workflow.getOwnerId().equals(currentUser.requireUserId())) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Workflow not found");
+        }
+        return workflow;
+    }
+
+    /** Loads a step and verifies its workflow is owned by the current user. */
+    private WorkflowStep requireOwnedStep(Long id) {
+        WorkflowStep step = stepRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Step not found"));
+        requireWorkflow(step.getWorkflowId());
+        return step;
     }
 
     WorkflowDto toWorkflowDto(Workflow w) {
@@ -244,12 +262,14 @@ public class WorkflowService {
 
     // ---------------- Folders ----------------
 
-    /** Validates that the folder exists (when provided) and returns the id unchanged (null = ungrouped). */
+    /** Validates that the folder exists (when provided), is owned by the current user, and returns the id (null = ungrouped). */
     private Long resolveFolderId(Long folderId) {
         if (folderId == null) {
             return null;
         }
-        if (!folderRepository.existsById(folderId)) {
+        WorkflowFolder folder = folderRepository.findById(folderId)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Folder not found: " + folderId));
+        if (!folder.getOwnerId().equals(currentUser.requireUserId())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Folder not found: " + folderId);
         }
         return folderId;
@@ -302,7 +322,8 @@ public class WorkflowService {
     /** Flat forest of every step across all current-version workflows; used by dashboards and pickers. */
     @Transactional(readOnly = true)
     public List<WorkflowStepDto> getAllSteps() {
-        Set<Long> currentIds = workflowRepository.findByIsCurrentTrueOrderByOrderIndexAsc().stream()
+        Set<Long> currentIds = workflowRepository
+                .findByOwnerIdAndIsCurrentTrueOrderByOrderIndexAsc(currentUser.requireUserId()).stream()
                 .map(Workflow::getId).collect(Collectors.toSet());
         List<WorkflowStep> steps = stepRepository.findAllByOrderByOrderIndexAsc().stream()
                 .filter(s -> currentIds.contains(s.getWorkflowId()))
@@ -327,14 +348,14 @@ public class WorkflowService {
     public WorkflowStepDto createStep(CreateStepRequest request) {
         Long workflowId;
         if (request.parentId() != null) {
-            WorkflowStep parent = stepRepository.findById(request.parentId())
-                    .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Parent step not found"));
+            WorkflowStep parent = requireOwnedStep(request.parentId());
             workflowId = parent.getWorkflowId();
         } else {
             workflowId = request.workflowId();
-            if (workflowId == null || !workflowRepository.existsById(workflowId)) {
+            if (workflowId == null) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Workflow not found");
             }
+            requireWorkflow(workflowId);
         }
         validateRoles(request.businessRoleIds());
         validatePhase(request.phaseId(), workflowId);
@@ -353,8 +374,7 @@ public class WorkflowService {
 
     @Transactional
     public WorkflowStepDto updateStep(Long id, UpdateStepRequest request) {
-        WorkflowStep step = stepRepository.findById(id)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Step not found"));
+        WorkflowStep step = requireOwnedStep(id);
         validateRoles(request.businessRoleIds());
         validatePhase(request.phaseId(), step.getWorkflowId());
         step.setName(request.name().trim());
@@ -368,9 +388,7 @@ public class WorkflowService {
 
     @Transactional
     public void deleteStep(Long id) {
-        if (!stepRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Step not found");
-        }
+        requireOwnedStep(id);
         List<Long> toDelete = collectSubtreeIds(id);
         // Remove any transitions that touch a deleted step (as source or target), then prune orphaned groups.
         List<WorkflowTransition> touching = transitionRepository.findAll().stream()
@@ -405,9 +423,7 @@ public class WorkflowService {
 
     @Transactional
     public StepReviewDto addReview(Long stepId, ReviewRequest request) {
-        if (!stepRepository.existsById(stepId)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Step not found");
-        }
+        requireOwnedStep(stepId);
         StepReview review = new StepReview();
         review.setStepId(stepId);
         review.setContent(request.content().trim());
@@ -419,6 +435,7 @@ public class WorkflowService {
     public StepReviewDto updateReview(Long reviewId, ReviewRequest request) {
         StepReview review = reviewRepository.findById(reviewId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Review not found"));
+        requireOwnedStep(review.getStepId());
         review.setContent(request.content().trim());
         reviewRepository.save(review);
         return WorkflowMapper.toReviewDto(review);
@@ -426,9 +443,9 @@ public class WorkflowService {
 
     @Transactional
     public void deleteReview(Long reviewId) {
-        if (!reviewRepository.existsById(reviewId)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Review not found");
-        }
+        StepReview review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Review not found"));
+        requireOwnedStep(review.getStepId());
         reviewRepository.deleteById(reviewId);
     }
 
@@ -473,8 +490,7 @@ public class WorkflowService {
     /** Sets or clears a step's personal importance flag; a null/blank level removes it. */
     @Transactional
     public WorkflowStepDto setStepFlag(Long stepId, String level) {
-        WorkflowStep step = stepRepository.findById(stepId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Step not found"));
+        WorkflowStep step = requireOwnedStep(stepId);
         String normalized = level == null ? null : level.trim();
         if (normalized == null || normalized.isEmpty()) {
             flagRepository.deleteByWorkflowIdAndLineageKey(step.getWorkflowId(), step.getLineageKey());
@@ -504,6 +520,8 @@ public class WorkflowService {
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Source step not found"));
         WorkflowStep to = stepRepository.findById(request.toStepId())
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Target step not found"));
+        requireWorkflow(from.getWorkflowId());
+        requireWorkflow(to.getWorkflowId());
         if (transitionRepository.existsByFromStepIdAndToStepId(from.getId(), to.getId())) {
             throw new ApiException(HttpStatus.CONFLICT, "Transition already exists");
         }
@@ -523,6 +541,7 @@ public class WorkflowService {
     public void deleteTransition(Long id) {
         WorkflowTransition transition = transitionRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Transition not found"));
+        requireOwnedStep(transition.getFromStepId());
         Long groupId = transition.getGroupId();
         Long coFireGroupId = transition.getCoFireGroupId();
         transitionRepository.delete(transition);
@@ -533,9 +552,7 @@ public class WorkflowService {
     /** Creates a new condition group on {@code fromStepId} whose targets all start together (AND fan-out). */
     @Transactional
     public List<TransitionDto> createTransitionGroup(CreateTransitionGroupRequest request) {
-        if (!stepRepository.existsById(request.fromStepId())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Source step not found");
-        }
+        requireOwnedStep(request.fromStepId());
         TransitionGroup group = new TransitionGroup();
         group.setFromStepId(request.fromStepId());
         group.setOrderIndex(transitionGroupRepository.findByFromStepIdOrderByOrderIndexAsc(request.fromStepId()).size());
@@ -548,6 +565,7 @@ public class WorkflowService {
     public List<TransitionDto> updateTransitionGroup(Long groupId, UpdateTransitionGroupRequest request) {
         TransitionGroup group = transitionGroupRepository.findById(groupId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Condition group not found"));
+        requireOwnedStep(group.getFromStepId());
         return syncGroupTargets(group, request.toStepIds(), request.label());
     }
 
@@ -636,6 +654,7 @@ public class WorkflowService {
     @Transactional
     public List<TransitionDto> createCoFireGroup(CoFireGroupRequest request) {
         List<WorkflowTransition> members = loadCoFireMembers(request.transitionIds());
+        requireOwnedStep(members.get(0).getFromStepId());
         Long toStepId = members.get(0).getToStepId();
         TransitionCoFireGroup group = new TransitionCoFireGroup();
         group.setToStepId(toStepId);
@@ -650,6 +669,7 @@ public class WorkflowService {
         TransitionCoFireGroup group = coFireGroupRepository.findById(groupId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Co-fire group not found"));
         List<WorkflowTransition> members = loadCoFireMembers(request.transitionIds());
+        requireOwnedStep(members.get(0).getFromStepId());
         if (!members.get(0).getToStepId().equals(group.getToStepId())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Co-fire members must target this group's step");
         }
@@ -669,7 +689,11 @@ public class WorkflowService {
         if (!coFireGroupRepository.existsById(groupId)) {
             throw new ApiException(HttpStatus.NOT_FOUND, "Co-fire group not found");
         }
-        transitionRepository.findByCoFireGroupId(groupId).forEach(t -> {
+        List<WorkflowTransition> members = transitionRepository.findByCoFireGroupId(groupId);
+        if (!members.isEmpty()) {
+            requireOwnedStep(members.get(0).getFromStepId());
+        }
+        members.forEach(t -> {
             t.setCoFireGroupId(null);
             transitionRepository.save(t);
         });
@@ -743,14 +767,17 @@ public class WorkflowService {
 
     @Transactional(readOnly = true)
     public List<WorkflowStepDto> getStepsByRole(Long roleId) {
-        if (!roleRepository.existsById(roleId)) {
+        BusinessRole role = roleRepository.findById(roleId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Role not found"));
+        if (!role.getOwnerId().equals(currentUser.requireUserId())) {
             throw new ApiException(HttpStatus.NOT_FOUND, "Role not found");
         }
         Map<Long, BusinessRole> roles = roleRepository.findAll().stream()
                 .collect(Collectors.toMap(BusinessRole::getId, Function.identity()));
         Map<Long, WorkflowPhase> phases = phaseRepository.findAll().stream()
                 .collect(Collectors.toMap(WorkflowPhase::getId, Function.identity()));
-        Set<Long> currentIds = workflowRepository.findByIsCurrentTrueOrderByOrderIndexAsc().stream()
+        Set<Long> currentIds = workflowRepository
+                .findByOwnerIdAndIsCurrentTrueOrderByOrderIndexAsc(currentUser.requireUserId()).stream()
                 .map(Workflow::getId).collect(Collectors.toSet());
         List<WorkflowStep> steps = stepRepository.findByBusinessRoleIdOrderByOrderIndexAsc(roleId).stream()
                 .filter(step -> currentIds.contains(step.getWorkflowId()))
@@ -792,7 +819,12 @@ public class WorkflowService {
     }
 
     private void validateRole(Long roleId) {
-        if (roleId != null && !roleRepository.existsById(roleId)) {
+        if (roleId == null) {
+            return;
+        }
+        BusinessRole role = roleRepository.findById(roleId)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Business role not found"));
+        if (!role.getOwnerId().equals(currentUser.requireUserId())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Business role not found");
         }
     }

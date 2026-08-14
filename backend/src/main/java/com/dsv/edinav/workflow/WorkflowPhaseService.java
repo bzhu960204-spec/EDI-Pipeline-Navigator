@@ -1,6 +1,7 @@
 package com.dsv.edinav.workflow;
 
 import com.dsv.edinav.common.ApiException;
+import com.dsv.edinav.security.CurrentUserService;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseDto;
 import com.dsv.edinav.workflow.dto.WorkflowPhaseRequest;
 import org.springframework.http.HttpStatus;
@@ -16,12 +17,14 @@ public class WorkflowPhaseService {
     private final WorkflowPhaseRepository phaseRepository;
     private final WorkflowStepRepository stepRepository;
     private final WorkflowRepository workflowRepository;
+    private final CurrentUserService currentUser;
 
     public WorkflowPhaseService(WorkflowPhaseRepository phaseRepository, WorkflowStepRepository stepRepository,
-                                WorkflowRepository workflowRepository) {
+                                WorkflowRepository workflowRepository, CurrentUserService currentUser) {
         this.phaseRepository = phaseRepository;
         this.stepRepository = stepRepository;
         this.workflowRepository = workflowRepository;
+        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
@@ -51,6 +54,7 @@ public class WorkflowPhaseService {
     public WorkflowPhaseDto updatePhase(Long id, WorkflowPhaseRequest request) {
         WorkflowPhase phase = phaseRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Phase not found"));
+        requireWorkflow(phase.getWorkflowId());
         phase.setName(request.name().trim());
         phase.setColor(request.color());
         phase.setDescription(request.description());
@@ -62,9 +66,9 @@ public class WorkflowPhaseService {
 
     @Transactional
     public void deletePhase(Long id) {
-        if (!phaseRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Phase not found");
-        }
+        WorkflowPhase phase = phaseRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Phase not found"));
+        requireWorkflow(phase.getWorkflowId());
         // Detach the phase from any steps that reference it, then delete (never cascade-delete steps).
         stepRepository.findByPhaseIdOrderByOrderIndexAsc(id).forEach(step -> {
             step.setPhaseId(null);
@@ -74,7 +78,9 @@ public class WorkflowPhaseService {
     }
 
     private void requireWorkflow(Long id) {
-        if (!workflowRepository.existsById(id)) {
+        Workflow workflow = workflowRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Workflow not found"));
+        if (!workflow.getOwnerId().equals(currentUser.requireUserId())) {
             throw new ApiException(HttpStatus.NOT_FOUND, "Workflow not found");
         }
     }

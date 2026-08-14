@@ -28,6 +28,7 @@ import {
   FileOutlined,
   FolderAddOutlined,
   FolderOutlined,
+  HomeOutlined,
   InboxOutlined,
   SwapOutlined,
   UploadOutlined,
@@ -56,6 +57,9 @@ function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
+
+// Sentinel tree key representing the artifact's top level (root).
+const ROOT_KEY = '__root__';
 
 function toTreeData(nodes: ArtifactNode[]): DataNode[] {
   return nodes.map((n) => ({
@@ -98,7 +102,20 @@ export function ArtifactDetailPage() {
     enabled: Number.isFinite(artifactId),
   });
 
-  const treeData = useMemo(() => (artifact ? toTreeData(artifact.nodes) : []), [artifact]);
+  const treeData = useMemo<DataNode[]>(
+    () =>
+      artifact
+        ? [
+            {
+              key: ROOT_KEY,
+              icon: <HomeOutlined />,
+              title: `${artifact.name} (top level)`,
+              children: toTreeData(artifact.nodes),
+            },
+          ]
+        : [],
+    [artifact],
+  );
   const selectedNode = artifact && selectedId != null ? findNode(artifact.nodes, selectedId) : null;
 
   // Folder that uploads/new-folders target: the selected folder, a selected file's parent, or root.
@@ -240,19 +257,19 @@ export function ArtifactDetailPage() {
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               Target folder: <b>{targetFolderName}</b> (select a folder to change)
             </Typography.Text>
-            {treeData.length === 0 ? (
-              <Empty description="Empty artifact — upload files or add folders" />
-            ) : (
-              <Tree
-                showIcon
-                showLine
-                blockNode
-                treeData={treeData}
-                selectedKeys={selectedId != null ? [selectedId] : []}
-                onSelect={(keys) => setSelectedId(keys.length ? Number(keys[0]) : null)}
-                style={{ marginTop: 12 }}
-              />
-            )}
+            <Tree
+              showIcon
+              showLine
+              blockNode
+              treeData={treeData}
+              defaultExpandedKeys={[ROOT_KEY]}
+              selectedKeys={[selectedId ?? ROOT_KEY]}
+              onSelect={(keys) => {
+                const key = keys[0];
+                setSelectedId(key == null || key === ROOT_KEY ? null : Number(key));
+              }}
+              style={{ marginTop: 12 }}
+            />
 
             <Upload.Dragger {...uploadProps} style={{ marginTop: 16 }}>
               <p className="ant-upload-drag-icon">

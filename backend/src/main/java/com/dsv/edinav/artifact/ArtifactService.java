@@ -12,6 +12,8 @@ import com.dsv.edinav.template.DirTemplateNode;
 import com.dsv.edinav.template.TemplateService;
 import com.dsv.edinav.user.User;
 import com.dsv.edinav.user.UserRepository;
+import com.dsv.edinav.workflow.Workflow;
+import com.dsv.edinav.workflow.WorkflowRepository;
 import com.dsv.edinav.workflow.WorkflowStep;
 import com.dsv.edinav.workflow.WorkflowStepRepository;
 import org.springframework.http.HttpStatus;
@@ -39,6 +41,7 @@ public class ArtifactService {
     private final TemplateService templateService;
     private final FileStorageService storage;
     private final WorkflowStepRepository stepRepository;
+    private final WorkflowRepository workflowRepository;
     private final UserRepository userRepository;
 
     public ArtifactService(ArtifactRepository artifactRepository,
@@ -47,6 +50,7 @@ public class ArtifactService {
                            TemplateService templateService,
                            FileStorageService storage,
                            WorkflowStepRepository stepRepository,
+                           WorkflowRepository workflowRepository,
                            UserRepository userRepository) {
         this.artifactRepository = artifactRepository;
         this.nodeRepository = nodeRepository;
@@ -54,6 +58,7 @@ public class ArtifactService {
         this.templateService = templateService;
         this.storage = storage;
         this.stepRepository = stepRepository;
+        this.workflowRepository = workflowRepository;
         this.userRepository = userRepository;
     }
 
@@ -225,7 +230,11 @@ public class ArtifactService {
     @Transactional
     public ArtifactDetailDto advance(Long ownerId, Long artifactId, Long toStepId, String comment) {
         Artifact artifact = requireOwned(ownerId, artifactId);
-        if (!stepRepository.existsById(toStepId)) {
+        WorkflowStep target = stepRepository.findById(toStepId)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Target step not found"));
+        Workflow workflow = workflowRepository.findById(target.getWorkflowId())
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Target step not found"));
+        if (!ownerId.equals(workflow.getOwnerId())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Target step not found");
         }
         StatusHistory history = new StatusHistory();

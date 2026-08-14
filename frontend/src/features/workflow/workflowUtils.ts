@@ -101,3 +101,19 @@ export function buildIncomingIndex(tree: WorkflowStep[]): Map<number, IncomingRe
   }
   return index;
 }
+
+// Characters forbidden in Windows/most filesystems; everything else (incl. CJK) is kept.
+const FORBIDDEN_FILENAME_CHARS = /[\\/:*?"<>|\u0000-\u001f]+/g;
+
+/** Sanitize a name for use as a download filename, preserving non-ASCII (e.g. Chinese) text. */
+export function sanitizeFileName(name: string | null | undefined, fallback = 'workflow'): string {
+  const collapsed = (name ?? '')
+    .replace(FORBIDDEN_FILENAME_CHARS, '_')
+    .replace(/\s+/g, '_')
+    .trim();
+  let start = 0;
+  let end = collapsed.length;
+  while (start < end && (collapsed[start] === '.' || collapsed[start] === '_')) start++;
+  while (end > start && (collapsed[end - 1] === '.' || collapsed[end - 1] === '_')) end--;
+  return collapsed.slice(start, end) || fallback;
+}

@@ -25,6 +25,9 @@ public class SchemaTemplate {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** The user who owns this template; schema templates are private per user. */
+    private Long ownerId;
+
     /** Groups all versions of one logical template; set to the row's own id for a brand-new template. */
     private Long groupId;
 
@@ -74,6 +77,9 @@ public class SchemaTemplate {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public Long getOwnerId() { return ownerId; }
+    public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
 
     public Long getGroupId() { return groupId; }
     public void setGroupId(Long groupId) { this.groupId = groupId; }
