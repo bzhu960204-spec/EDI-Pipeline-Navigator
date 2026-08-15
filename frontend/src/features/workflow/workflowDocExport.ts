@@ -293,7 +293,11 @@ function renderStep(
         ${reviews}
         ${previous}
         ${next}
-        ${children ? `<div class="children">${children}</div>` : ''}
+        ${
+          children
+            ? `<div class="kids"><button class="kids-toggle" type="button">Collapse sub-steps</button><div class="children">${children}</div></div>`
+            : ''
+        }
       </div>
     </section>`;
 }
@@ -417,6 +421,7 @@ const STYLES = `
   .toc-l3 { padding-left: 44px; }
   .toc-phase { font-weight: 600; color: #595959; padding: 8px 8px 2px; }
   body.toc-hidden .toc { display: none; }
+  body.toc-hidden .layout { justify-content: center; }
   body.hide-roles .roles, body.hide-notes .notes, body.hide-reviews .reviews, body.hide-next .next, body.hide-previous .prev { display: none !important; }
   .step.search-hidden { display: none; }
   .page { flex: 1 1 auto; max-width: 960px; margin: 24px 0; padding: 32px 40px 64px; background: #fff; box-shadow: 0 1px 8px rgba(0,0,0,0.08); }
@@ -478,10 +483,12 @@ const STYLES = `
   .pill.cofire { background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; }
   .cofire-wrap { position: relative; display: inline-block; }
   .cofire-wrap .pill.cofire { cursor: help; }
-  .cofire-tip { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 20; min-width: 180px; max-width: 300px;
+  .cofire-tip { position: absolute; left: 0; bottom: 100%; z-index: 20; min-width: 180px; max-width: 300px;
     background: #1f1f1f; color: #fff; border-radius: 6px; padding: 8px 10px; font-size: 12px; font-weight: 400;
     box-shadow: 0 4px 16px rgba(0,0,0,0.28); opacity: 0; visibility: hidden; transition: opacity 0.12s; pointer-events: none; }
-  .cofire-wrap:hover .cofire-tip { opacity: 1; visibility: visible; }
+  /* Transparent bridge fills the gap above the pill so the pointer can reach the tip without dropping :hover. */
+  .cofire-tip::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 6px; }
+  .cofire-wrap:hover .cofire-tip { opacity: 1; visibility: visible; pointer-events: auto; }
   .cofire-tip-title { font-weight: 600; }
   .cofire-tip ul { margin: 4px 0 0; padding-left: 16px; }
   .cofire-tip li { margin: 2px 0; }
@@ -491,6 +498,9 @@ const STYLES = `
   .flag { display: inline-block; width: 9px; height: 9px; border-radius: 9px; }
   .flag-label { font-size: 11px; color: #8c8c8c; }
   .children { margin-top: 6px; }
+  .kids-toggle { cursor: pointer; margin: 6px 0 0; border: 1px solid #d9d9d9; background: #fafafa; color: #595959; border-radius: 4px; padding: 2px 10px; font-size: 12px; }
+  .kids-toggle:hover { background: #f0f0f0; }
+  .kids.kids-collapsed > .children { display: none; }
   @keyframes flash { 0% { background: #fffb8f; } 100% { background: transparent; } }
   .step.flash > .step-head { animation: flash 1.4s ease-out; border-radius: 4px; }
   .legend { margin-top: 40px; padding-top: 16px; border-top: 2px solid #f0f0f0; }
@@ -502,6 +512,8 @@ const STYLES = `
     .layout { display: block; max-width: none; }
     .page { box-shadow: none; max-width: none; padding: 0; margin: 0; }
     .step.collapsed > .step-body, .phase-section.collapsed > .phase-body { display: block !important; }
+    .kids.kids-collapsed > .children { display: block !important; }
+    .kids-toggle { display: none !important; }
     .step.search-hidden { display: block !important; }
     .toggle, .toggle-spacer { display: none !important; }
     .step-body { break-inside: avoid; }
@@ -527,6 +539,14 @@ const SCRIPT = `
       btn.addEventListener('click', function () {
         var sec = btn.closest('.phase-section');
         if (sec) sec.classList.toggle('collapsed');
+      });
+    });
+    document.querySelectorAll('.kids-toggle').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var kids = btn.closest('.kids');
+        if (!kids) return;
+        var collapsed = kids.classList.toggle('kids-collapsed');
+        btn.textContent = collapsed ? 'Expand sub-steps' : 'Collapse sub-steps';
       });
     });
     var expandBtn = document.getElementById('expandAll');
