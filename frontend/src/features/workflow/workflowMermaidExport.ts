@@ -312,8 +312,9 @@ export function buildWorkflowMermaidHtml(
   header h1 { margin: 0; font-size: 18px; }
   header .meta { margin-top: 4px; font-size: 12px; color: #8c8c8c; }
   header .tag { display: inline-block; padding: 1px 8px; border-radius: 10px; background: #e6f4ff; color: #1677ff; font-size: 12px; margin-left: 8px; }
-  .stage { position: relative; flex: 1 1 auto; min-height: 360px; overflow: hidden; background: #f5f5f5; cursor: grab; touch-action: none; }
+  .stage { position: relative; flex: 1 1 auto; min-height: 360px; overflow: hidden; background: #f5f5f5; cursor: grab; touch-action: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
   .stage.panning { cursor: grabbing; }
+  .mermaid svg text { pointer-events: none; }
   .viewport { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
   .mermaid { display: inline-block; }
   .mermaid svg { display: block; max-width: none; height: auto; }
@@ -606,6 +607,9 @@ export function buildWorkflowMermaidHtml(
       // Let clicks on steps/groups and the toolbar/hint through; pan only from the empty canvas.
       // Capturing the pointer for toolbar clicks would retarget the button's click to the stage.
       if (e.target.closest && e.target.closest('g.node, g.cluster, .toolbar, .hint')) return;
+      e.preventDefault();
+      var sel = window.getSelection && window.getSelection();
+      if (sel && sel.removeAllRanges) sel.removeAllRanges();
       dragging = true; ox = e.clientX - tx; oy = e.clientY - ty;
       viewport.style.willChange = 'transform';
       stage.classList.add('panning');
@@ -618,6 +622,18 @@ export function buildWorkflowMermaidHtml(
     const endDrag = () => { dragging = false; viewport.style.willChange = 'auto'; stage.classList.remove('panning'); };
     stage.addEventListener('pointerup', endDrag);
     stage.addEventListener('pointercancel', endDrag);
+
+    // Arrow keys pan the canvas; Shift moves faster. Skip when a toolbar button is focused.
+    window.addEventListener('keydown', (e) => {
+      const map = { ArrowLeft: [1, 0], ArrowRight: [-1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
+      const dir = map[e.key];
+      if (!dir) return;
+      var t = e.target;
+      if (t && t.closest && t.closest('button, input, textarea, select')) return;
+      e.preventDefault();
+      const step = e.shiftKey ? 240 : 60;
+      tx += dir[0] * step; ty += dir[1] * step; apply();
+    });
 
     const center = () => { const r = stage.getBoundingClientRect(); return [r.width / 2, r.height / 2]; };
     document.getElementById('zoomIn').addEventListener('click', () => { const c = center(); zoomAt(c[0], c[1], 1.2); });
