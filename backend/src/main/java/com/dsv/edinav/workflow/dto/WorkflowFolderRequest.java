@@ -7,5 +7,6 @@ public record WorkflowFolderRequest(
         @NotBlank @Size(max = 120) String name,
         @Size(max = 20) String color,
         @Size(max = 500) String description,
-        Integer orderIndex
+        Integer orderIndex,
+        Long parentId
 ) {}

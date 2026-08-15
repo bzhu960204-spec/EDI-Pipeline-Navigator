@@ -33,7 +33,7 @@ import {
 } from '../../api/workflow';
 import { extractErrorMessage } from '../../api/client';
 import { useAuthStore } from '../auth/authStore';
-import { buildIncomingIndex, findStep, sanitizeFileName } from './workflowUtils';
+import { buildCoFireIndex, buildIncomingIndex, findStep, sanitizeFileName } from './workflowUtils';
 import { useFlowNavigation } from './useFlowNavigation';
 import { colorForTag } from './tagColor';
 import { StepDetail } from './StepDetail';
@@ -45,6 +45,7 @@ import { WorkflowGraph } from './WorkflowGraph';
 import { VersionManagerModal } from './VersionManagerModal';
 import { toPhaseGroupedTreeData, toTreeData } from './workflowTreeData';
 import { buildWorkflowHtml } from './workflowDocExport';
+import { buildWorkflowMermaidHtml } from './workflowMermaidExport';
 
 type ViewMode = 'tree' | 'graph';
 type TreeGrouping = 'hierarchy' | 'phase';
@@ -76,7 +77,7 @@ export function WorkflowPage() {
   const [phaseManagerOpen, setPhaseManagerOpen] = useState(false);
   const [treeGroup, setTreeGroup] = useState<TreeGrouping>('phase');
   const [exportOpen, setExportOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState<'html' | 'json'>('html');
+  const [exportFormat, setExportFormat] = useState<'html' | 'mermaid' | 'json'>('html');
   const [exportIncludePhases, setExportIncludePhases] = useState(false);
   const [exportIncludeReviews, setExportIncludeReviews] = useState(false);
   const [exportIncludeFlags, setExportIncludeFlags] = useState(false);
@@ -116,6 +117,7 @@ export function WorkflowPage() {
   );
   const selectedStep = selectedId != null ? findStep(tree, selectedId) : null;
   const incomingIndex = useMemo(() => buildIncomingIndex(tree), [tree]);
+  const coFireIndex = useMemo(() => buildCoFireIndex(tree), [tree]);
 
   // childId -> parentId across the whole tree, for expanding a target's ancestor chain on navigate.
   const parentMap = useMemo(() => {
@@ -319,11 +321,21 @@ export function WorkflowPage() {
       includeReviews: exportIncludeReviews,
       includeFlags: exportIncludeFlags,
     });
+    downloadHtml(html, `${sanitizeFileName(workflow.name)}.html`);
+  };
+
+  const exportMermaid = () => {
+    if (!workflow) return;
+    const html = buildWorkflowMermaidHtml(workflow, tree, phases, { groupByPhase: exportIncludePhases });
+    downloadHtml(html, `${sanitizeFileName(workflow.name)}-mermaid.html`);
+  };
+
+  const downloadHtml = (html: string, fileName: string) => {
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${sanitizeFileName(workflow.name)}.html`;
+    anchor.download = fileName;
     anchor.click();
     URL.revokeObjectURL(url);
     setExportOpen(false);
@@ -332,6 +344,7 @@ export function WorkflowPage() {
 
   const submitExport = () => {
     if (exportFormat === 'html') exportHtml();
+    else if (exportFormat === 'mermaid') exportMermaid();
     else runExport.mutate({ includePhases: exportIncludePhases, includeReviews: exportIncludeReviews });
   };
 
@@ -614,6 +627,7 @@ export function WorkflowPage() {
               isAdmin={admin}
               isEntry={selectedStep?.id === tree[0]?.id}
               incoming={selectedStep ? (incomingIndex.get(selectedStep.id) ?? []) : []}
+              coFireIndex={coFireIndex}
               pickerDirection={view === 'tree' ? picker?.direction : undefined}
               pickerIndex={view === 'tree' ? picker?.index : undefined}
               onEdit={() => selectedStep && setStepModal({ mode: 'edit', step: selectedStep })}
@@ -667,28 +681,38 @@ export function WorkflowPage() {
           <Segmented
             block
             value={exportFormat}
-            onChange={(v) => setExportFormat(v as 'html' | 'json')}
+            onChange={(v) => setExportFormat(v as 'html' | 'mermaid' | 'json')}
             options={[
-              { label: 'HTML (readable)', value: 'html' },
-              { label: 'JSON (re-import)', value: 'json' },
+              { label: 'HTML tree', value: 'html' },
+              { label: 'Flow (Mermaid)', value: 'mermaid' },
+              { label: 'JSON', value: 'json' },
             ]}
           />
-          {exportFormat === 'html' ? (
+          {exportFormat === 'html' && (
             <Typography.Text type="secondary">
-              A self-contained, printable document for sharing. Open it in any browser, or use the
-              browser&apos;s Print dialog to save as PDF.
+              A self-contained, readable tree document for sharing. Opens in any browser.
             </Typography.Text>
-          ) : (
+          )}
+          {exportFormat === 'mermaid' && (
+            <Typography.Text type="secondary">
+              A Mermaid flowchart where sub-steps nest inside their parent. Click a group to collapse
+              it or a collapsed step to expand it. The source is embedded to copy into any Mermaid
+              tool. Rendering loads Mermaid from a CDN.
+            </Typography.Text>
+          )}
+          {exportFormat === 'json' && (
             <Typography.Text type="secondary">
               Steps, roles and branching are always included. Phases and reviews are optional and off by default.
             </Typography.Text>
           )}
           <Checkbox checked={exportIncludePhases} onChange={(e) => setExportIncludePhases(e.target.checked)}>
-            {exportFormat === 'html' ? 'Group steps by phase' : 'Include phases'}
+            {exportFormat === 'json' ? 'Include phases' : 'Group steps by phase'}
           </Checkbox>
-          <Checkbox checked={exportIncludeReviews} onChange={(e) => setExportIncludeReviews(e.target.checked)}>
-            Include reviews
-          </Checkbox>
+          {(exportFormat === 'html' || exportFormat === 'json') && (
+            <Checkbox checked={exportIncludeReviews} onChange={(e) => setExportIncludeReviews(e.target.checked)}>
+              Include reviews
+            </Checkbox>
+          )}
           {exportFormat === 'html' && (
             <Checkbox checked={exportIncludeFlags} onChange={(e) => setExportIncludeFlags(e.target.checked)}>
               Include personal flags

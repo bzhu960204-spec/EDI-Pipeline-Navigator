@@ -24,6 +24,7 @@ import {
   Upload,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import type { CollapseProps } from 'antd';
 import {
   EditOutlined,
   DeleteOutlined,
@@ -69,8 +70,10 @@ import { useAuthStore } from '../auth/authStore';
 import { FolderManagerPanel } from './FolderManagerPanel';
 import { colorForTag } from './tagColor';
 import { DropZone, dragRowComponents } from './workflowDnd';
+import { buildFolderTree, type FolderNode } from './folderTree';
 
 type LibraryView = 'table' | 'groups';
+type CollapseItem = NonNullable<CollapseProps['items']>[number];
 const VIEW_STORAGE_KEY = 'edinav-workflow-view';
 const EXPANDED_STORAGE_KEY = 'edinav-workflow-expanded';
 const UNGROUPED_KEY = 'ungrouped';
@@ -157,10 +160,15 @@ export function SubWorkflowsPage() {
     localStorage.setItem(VIEW_STORAGE_KEY, next);
   };
 
-  const onExpandChange = (keys: string | string[]) => {
-    const next = Array.isArray(keys) ? keys : [keys];
-    setExpandedKeys(next);
-    localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(next));
+  // Nested collapses share one expandedKeys list; each reports only its own panel keys, so we
+  // merge by replacing just the keys owned by that collapse and keeping the rest untouched.
+  const setExpandScoped = (scopeKeys: string[], keys: string | string[]) => {
+    const nowOpen = Array.isArray(keys) ? keys : [keys];
+    setExpandedKeys((prev) => {
+      const next = [...prev.filter((k) => !scopeKeys.includes(k)), ...nowOpen];
+      localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
   };
 
   const { data: workflows = [], isLoading } = useQuery({
@@ -550,24 +558,44 @@ export function SubWorkflowsPage() {
         ungrouped.push(wf);
       }
     }
-    const items = folders
-      .filter((folder) => (byFolder.get(folder.id)?.length ?? 0) > 0 || !hasFilters || admin)
-      .map((folder) => {
-        const rows = byFolder.get(folder.id) ?? [];
-        return {
-          key: `folder-${folder.id}`,
-          label: (
-            <DropZone id={`hdr-folder-${folder.id}`} folderId={folder.id}>
-              {groupHeader(folder.name, rows.length, colorForTag(folder.name), folder.description)}
-            </DropZone>
-          ),
-          children: (
-            <DropZone id={`body-folder-${folder.id}`} folderId={folder.id}>
+
+    const renderNode = (node: FolderNode): CollapseItem | null => {
+      const rows = byFolder.get(node.folder.id) ?? [];
+      const childItems = node.children
+        .map(renderNode)
+        .filter((item): item is CollapseItem => item != null);
+      // While filtering, hide folders whose whole subtree has no match (admins always see all).
+      if (rows.length === 0 && childItems.length === 0 && hasFilters && !admin) return null;
+      const childKeys = childItems.map((item) => String(item.key));
+      return {
+        key: `folder-${node.folder.id}`,
+        label: (
+          <DropZone id={`hdr-folder-${node.folder.id}`} folderId={node.folder.id}>
+            {groupHeader(node.folder.name, rows.length, colorForTag(node.folder.name), node.folder.description)}
+          </DropZone>
+        ),
+        children: (
+          <>
+            {childItems.length > 0 && (
+              <Collapse
+                items={childItems}
+                activeKey={expandedKeys}
+                onChange={(a) => setExpandScoped(childKeys, a)}
+                style={{ marginBottom: 12 }}
+              />
+            )}
+            <DropZone id={`body-folder-${node.folder.id}`} folderId={node.folder.id}>
               {groupTable(rows)}
             </DropZone>
-          ),
-        };
-      });
+          </>
+        ),
+      };
+    };
+
+    const items = buildFolderTree(folders)
+      .map(renderNode)
+      .filter((item): item is CollapseItem => item != null);
+
     if (ungrouped.length > 0 || admin) {
       items.push({
         key: UNGROUPED_KEY,
@@ -586,10 +614,15 @@ export function SubWorkflowsPage() {
     return items;
     // groupTable/groupHeader are stable render helpers; columns rebuilds each render (acceptable)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, folders, hasFilters, admin]);
+  }, [filtered, folders, hasFilters, admin, expandedKeys]);
 
+  const topLevelKeys = groupItems.map((item) => String(item.key));
   const plainCollapse = (
-    <Collapse items={groupItems} activeKey={expandedKeys} onChange={onExpandChange} />
+    <Collapse
+      items={groupItems}
+      activeKey={expandedKeys}
+      onChange={(a) => setExpandScoped(topLevelKeys, a)}
+    />
   );
   let groupsView: ReactNode;
   if (groupItems.length === 0) {

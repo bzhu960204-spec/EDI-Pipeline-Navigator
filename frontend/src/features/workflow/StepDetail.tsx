@@ -1,4 +1,4 @@
-import { App as AntApp, Button, Card, Descriptions, Dropdown, Empty, Input, List, Popconfirm, Space, Tabs, Tag, Typography } from 'antd';
+import { App as AntApp, Button, Card, Descriptions, Dropdown, Empty, Input, List, Popconfirm, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
 import type { MenuProps, TabsProps } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -22,6 +22,8 @@ interface StepDetailProps {
   isAdmin: boolean;
   isEntry?: boolean;
   incoming?: IncomingRef[];
+  /** All co-fire members keyed by group id, so an outgoing transition can list its fellow arrivals. */
+  coFireIndex?: Map<number, IncomingRef[]>;
   pickerDirection?: 'next' | 'previous';
   pickerIndex?: number;
   onEdit: () => void;
@@ -43,6 +45,7 @@ export function StepDetail({
   isAdmin,
   isEntry,
   incoming = [],
+  coFireIndex,
   pickerDirection,
   pickerIndex,
   onEdit,
@@ -245,6 +248,33 @@ export function StepDetail({
     return blocks;
   };
 
+  // Tooltip listing the OTHER arrivals that must co-fire with this outgoing transition.
+  const renderCoFireTooltip = (t: Transition): React.ReactNode => {
+    if (t.coFireGroupId == null) return null;
+    const others = (coFireIndex?.get(t.coFireGroupId) ?? []).filter(
+      (m) => m.transition.id !== t.id,
+    );
+    return (
+      <div style={{ maxWidth: 260 }}>
+        <Typography.Text strong style={{ color: '#fff', fontSize: 12 }}>
+          Co-fires with:
+        </Typography.Text>
+        {others.length === 0 ? (
+          <div style={{ fontSize: 12, marginTop: 4 }}>No other arrivals in this group.</div>
+        ) : (
+          <ul style={{ margin: '4px 0 0', paddingInlineStart: 16 }}>
+            {others.map((m) => (
+              <li key={m.transition.id} style={{ fontSize: 12 }}>
+                {m.transition.label ? `[${m.transition.label}] ` : ''}
+                {m.fromStep.name}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  };
+
   const tabItems: TabsProps['items'] = [
     {
       key: 'next',
@@ -306,7 +336,11 @@ export function StepDetail({
                           <Button type="link" style={{ padding: 0 }} onClick={() => onNavigate(t.toStepId)}>
                             {t.toStepName}
                           </Button>
-                          {t.coFireGroupId != null && <Tag color="volcano">co-fire</Tag>}
+                          {t.coFireGroupId != null && (
+                            <Tooltip title={renderCoFireTooltip(t)}>
+                              <Tag color="volcano" style={{ cursor: 'help' }}>co-fire</Tag>
+                            </Tooltip>
+                          )}
                         </Space>
                         {isAdmin && (
                           <Space size={0}>

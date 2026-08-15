@@ -102,6 +102,33 @@ export function buildIncomingIndex(tree: WorkflowStep[]): Map<number, IncomingRe
   return index;
 }
 
+/**
+ * Build the co-fire index: for each co-fire group id, all transitions (with their source
+ * step) that must fire together before their shared target starts. Any transition can look
+ * up its fellow members via its own coFireGroupId.
+ */
+export function buildCoFireIndex(tree: WorkflowStep[]): Map<number, IncomingRef[]> {
+  const all = flattenAll(tree);
+  const byId = new Map(all.map((s) => [s.id, s]));
+  const rollback = findRollbackEdges(all, tree[0]?.id ?? null);
+
+  const index = new Map<number, IncomingRef[]>();
+  for (const from of all) {
+    for (const t of from.transitions) {
+      if (t.coFireGroupId == null || !byId.has(t.toStepId)) continue;
+      const list = index.get(t.coFireGroupId) ?? [];
+      list.push({
+        transition: t,
+        fromStep: from,
+        isRollback: rollback.has(`${from.id}->${t.toStepId}`),
+        isSelfLoop: from.id === t.toStepId,
+      });
+      index.set(t.coFireGroupId, list);
+    }
+  }
+  return index;
+}
+
 // Characters forbidden in Windows/most filesystems; everything else (incl. CJK) is kept.
 const FORBIDDEN_FILENAME_CHARS = /[\\/:*?"<>|\u0000-\u001f]+/g;
 

@@ -1,22 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Space, Switch, Tag, Typography } from 'antd';
-import {
-  Background,
-  Controls,
-  Handle,
-  MarkerType,
-  Position,
-  ReactFlow,
-  useEdgesState,
-  useNodesState,
-  type Edge,
-  type Node,
-  type NodeProps,
-} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import dagre from '@dagrejs/dagre';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Space, Switch, Tag, Typography } from 'antd';
 import type { WorkflowPhase, WorkflowStep } from '../../api/workflow';
-import { flagMeta } from './stepFlag';
+import { useThemeStore } from '../../theme/themeStore';
+import {
+  buildMermaidModel,
+  generateMermaidSource,
+  type MermaidModel,
+} from './workflowMermaidExport';
 
 interface WorkflowGraphProps {
   tree: WorkflowStep[];
@@ -25,380 +15,338 @@ interface WorkflowGraphProps {
   onSelect: (stepId: number) => void;
 }
 
-const NODE_W = 190;
-const NODE_H = 58;
-const BAND_PAD = 12;
-const BAND_LABEL_H = 18;
-
-function tint(color: string | null | undefined, alpha: number): string {
-  if (!color || !/^#[0-9a-fA-F]{6}$/.test(color)) return `rgba(140,140,140,${alpha})`;
-  const r = Number.parseInt(color.slice(1, 3), 16);
-  const g = Number.parseInt(color.slice(3, 5), 16);
-  const b = Number.parseInt(color.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
+// Minimal surface of the Mermaid ESM module we actually call.
+interface MermaidApi {
+  initialize: (config: Record<string, unknown>) => void;
+  render: (id: string, source: string) => Promise<{ svg: string }>;
 }
 
-interface BandNodeData extends Record<string, unknown> {
-  name: string;
-  color?: string | null;
+interface PanZoom {
+  bind: (svg: SVGSVGElement, doFit: boolean) => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  fit: () => void;
+  reset: () => void;
+  destroy: () => void;
 }
 
-function PhaseBandNode({ data }: NodeProps) {
-  const d = data as BandNodeData;
-  return (
-    <div
-      style={{
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        background: tint(d.color, 0.07),
-        border: `1px dashed ${d.color ?? '#bfbfbf'}`,
-        borderRadius: 10,
-        position: 'relative',
-      }}
-    >
-      <span style={{ position: 'absolute', top: 3, left: 10, fontSize: 11, fontWeight: 600, color: d.color ?? '#8c8c8c' }}>
-        {d.name}
-      </span>
-    </div>
-  );
+// A Mermaid-rendered node maps back to a step via its DOM id (flowchart-s<id>-N).
+function nodeStepId(el: Element, model: MermaidModel): number | null {
+  const m = /flowchart-s(\d+)/.exec(el.id ?? '');
+  const id = m ? Number(m[1]) : Number.NaN;
+  return model.steps[id] ? id : null;
 }
 
-interface StepNodeData extends Record<string, unknown> {
-  name: string;
-  roleName?: string;
-  roleColor?: string;
-  isEntry: boolean;
-  isTerminal: boolean;
-  isDecision: boolean;
-  dimmed: boolean;
-  flagColor?: string;
-  flagLabel?: string;
+// A cluster is a step group only when its id is sub<id> (phase clusters are phase<id>).
+function clusterStepId(el: Element, model: MermaidModel): number | null {
+  const m = /sub(\d+)/.exec(el.id ?? '');
+  const id = m ? Number(m[1]) : Number.NaN;
+  return model.steps[id] && model.steps[id].kids.length > 0 ? id : null;
 }
 
-function StepNode({ data, selected }: NodeProps) {
-  const d = data as StepNodeData;
-  let borderColor = '#d9d9d9';
-  if (selected) borderColor = '#1677ff';
-  else if (d.isEntry) borderColor = '#52c41a';
-  else if (d.isTerminal) borderColor = '#8c8c8c';
-  else if (d.isDecision) borderColor = '#faad14';
-
-  return (
-    <div
-      style={{
-        width: NODE_W,
-        minHeight: NODE_H,
-        boxSizing: 'border-box',
-        border: `${selected ? 2 : 1}px solid ${borderColor}`,
-        borderLeft: `4px solid ${d.roleColor ?? borderColor}`,
-        borderRadius: 8,
-        padding: '6px 10px',
-        fontSize: 12,
-        background: 'var(--ant-color-bg-container, #fff)',
-        boxShadow: selected ? '0 0 0 3px rgba(22,119,255,0.15)' : undefined,
-        opacity: d.dimmed ? 0.25 : 1,
-        transition: 'opacity 0.15s',
-      }}
-    >
-      <Handle type="target" position={Position.Top} id="t" style={{ opacity: 0 }} />
-      <Handle type="source" position={Position.Bottom} id="b" style={{ opacity: 0 }} />
-      <Handle type="target" position={Position.Right} id="rt" style={{ top: '35%', opacity: 0 }} />
-      <Handle type="source" position={Position.Right} id="r" style={{ top: '65%', opacity: 0 }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        {d.isEntry && (
-          <span title="Entry" style={{ color: '#52c41a' }}>
-            ▶
-          </span>
-        )}
-        {d.isDecision && !d.isEntry && (
-          <span title="Decision" style={{ color: '#faad14' }}>
-            ◆
-          </span>
-        )}
-        <span style={{ fontWeight: 500, lineHeight: 1.2 }}>{d.name}</span>
-        {d.flagColor && (
-          <span
-            title={d.flagLabel}
-            style={{
-              marginLeft: 'auto',
-              flex: '0 0 auto',
-              width: 9,
-              height: 9,
-              borderRadius: 9,
-              background: d.flagColor,
-            }}
-          />
-        )}
-      </div>
-      {d.roleName && <div style={{ fontSize: 10, opacity: 0.65, marginTop: 2 }}>{d.roleName}</div>}
-    </div>
-  );
-}
-
-const nodeTypes = { step: StepNode, band: PhaseBandNode };
-
-function flatten(steps: WorkflowStep[]): WorkflowStep[] {
-  const out: WorkflowStep[] = [];
-  const walk = (list: WorkflowStep[]) => {
-    for (const s of list) {
-      out.push(s);
-      if (s.children?.length) walk(s.children);
-    }
+function createPanZoom(
+  stage: HTMLDivElement,
+  viewport: HTMLDivElement,
+  onZoom: (scale: number) => void,
+): PanZoom {
+  const MIN = 0.1;
+  const MAX = 8;
+  let svg: SVGSVGElement | null = null;
+  let natW = 0;
+  let natH = 0;
+  let scale = 1;
+  let tx = 0;
+  let ty = 0;
+  const clamp = (s: number) => Math.min(MAX, Math.max(MIN, s));
+  const apply = () => {
+    viewport.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+    onZoom(scale);
   };
-  walk(steps);
-  return out;
-}
+  const zoomAt = (cx: number, cy: number, factor: number) => {
+    const next = clamp(scale * factor);
+    const k = next / scale;
+    tx = cx - k * (cx - tx);
+    ty = cy - k * (cy - ty);
+    scale = next;
+    apply();
+  };
+  const fit = () => {
+    if (!svg || !natW || !natH) return;
+    const vw = stage.clientWidth;
+    const vh = stage.clientHeight;
+    const pad = 48;
+    scale = clamp(Math.min((vw - pad) / natW, (vh - pad) / natH, 1));
+    tx = (vw - natW * scale) / 2;
+    ty = (vh - natH * scale) / 2;
+    apply();
+  };
+  const center = (): [number, number] => {
+    const r = stage.getBoundingClientRect();
+    return [r.width / 2, r.height / 2];
+  };
 
-interface RawEdge {
-  transitionId: number;
-  from: number;
-  to: number;
-  label?: string | null;
-  isBack: boolean;
-}
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    const r = stage.getBoundingClientRect();
+    zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015));
+  };
+  let dragging = false;
+  let ox = 0;
+  let oy = 0;
+  const onDown = (e: PointerEvent) => {
+    // Let clicks on steps/groups through so select + collapse works; pan only from empty canvas.
+    if ((e.target as Element).closest?.('g.node, g.cluster')) return;
+    dragging = true;
+    // Promote to a GPU layer only while dragging; a permanent one caches a blurry raster.
+    viewport.style.willChange = 'transform';
+    ox = e.clientX - tx;
+    oy = e.clientY - ty;
+    stage.style.cursor = 'grabbing';
+    stage.setPointerCapture(e.pointerId);
+  };
+  const onMove = (e: PointerEvent) => {
+    if (!dragging) return;
+    tx = e.clientX - ox;
+    ty = e.clientY - oy;
+    apply();
+  };
+  const endDrag = () => {
+    dragging = false;
+    // Drop the cached layer so the browser re-rasterizes the SVG crisply at the current scale.
+    viewport.style.willChange = 'auto';
+    stage.style.cursor = 'grab';
+  };
+  stage.addEventListener('wheel', onWheel, { passive: false });
+  stage.addEventListener('pointerdown', onDown);
+  stage.addEventListener('pointermove', onMove);
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
 
-interface Band {
-  id: number;
-  name: string;
-  color?: string | null;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-interface GraphModel {
-  positions: Map<number, { x: number; y: number }>;
-  edges: RawEdge[];
-  neighbors: Map<number, Set<number>>;
-  incident: Map<number, Set<number>>;
-  bands: Band[];
-}
-
-// Detect rollback (back) edges via DFS, then lay out only forward edges with dagre (TB,
-// crossing-minimized). Back edges are drawn separately and don't influence ranking.
-// When usePhases is on, steps are grouped into dagre clusters so each phase forms a band.
-function buildModel(steps: WorkflowStep[], entryStepId: number | null | undefined,
-                    phases: WorkflowPhase[], usePhases: boolean): GraphModel {
-  const ids = steps.map((s) => s.id);
-  const idSet = new Set(ids);
-  const adj = new Map<number, number[]>();
-  ids.forEach((id) => adj.set(id, []));
-  const rawEdges: RawEdge[] = [];
-  for (const s of steps) {
-    for (const t of s.transitions) {
-      if (idSet.has(t.toStepId)) {
-        adj.get(s.id)!.push(t.toStepId);
-        rawEdges.push({ transitionId: t.id, from: s.id, to: t.toStepId, label: t.label, isBack: false });
+  return {
+    bind(nextSvg, doFit) {
+      svg = nextSvg;
+      const vb = nextSvg.viewBox?.baseVal;
+      if (vb?.width) {
+        natW = vb.width;
+        natH = vb.height;
+      } else {
+        const box = nextSvg.getBBox();
+        natW = box.width;
+        natH = box.height;
       }
-    }
-  }
-
-  const back = new Set<string>();
-  const state = new Map<number, 0 | 1 | 2>();
-  ids.forEach((id) => state.set(id, 0));
-  const dfs = (u: number) => {
-    state.set(u, 1);
-    for (const v of adj.get(u)!) {
-      const st = state.get(v);
-      if (st === 1) back.add(`${u}->${v}`);
-      else if (st === 0) dfs(v);
-    }
-    state.set(u, 2);
+      if (doFit) fit();
+      else apply();
+    },
+    zoomIn() {
+      const [cx, cy] = center();
+      zoomAt(cx, cy, 1.2);
+    },
+    zoomOut() {
+      const [cx, cy] = center();
+      zoomAt(cx, cy, 1 / 1.2);
+    },
+    fit,
+    reset() {
+      scale = 1;
+      const [cx, cy] = center();
+      tx = cx - natW / 2;
+      ty = cy - natH / 2;
+      apply();
+    },
+    destroy() {
+      stage.removeEventListener('wheel', onWheel);
+      stage.removeEventListener('pointerdown', onDown);
+      stage.removeEventListener('pointermove', onMove);
+      stage.removeEventListener('pointerup', endDrag);
+      stage.removeEventListener('pointercancel', endDrag);
+    },
   };
-  if (entryStepId != null && idSet.has(entryStepId)) dfs(entryStepId);
-  ids.forEach((id) => {
-    if (state.get(id) === 0) dfs(id);
-  });
-
-  const g = new dagre.graphlib.Graph({ compound: true });
-  g.setGraph({ rankdir: 'TB', ranksep: 64, nodesep: 34, edgesep: 12, marginx: 20, marginy: 20 });
-  g.setDefaultEdgeLabel(() => ({}));
-  ids.forEach((id) => g.setNode(String(id), { width: NODE_W, height: NODE_H }));
-
-  const usedPhaseIds = new Set<number>();
-  if (usePhases) {
-    for (const p of phases) {
-      const members = steps.filter((s) => s.phase?.id === p.id);
-      if (members.length === 0) continue;
-      usedPhaseIds.add(p.id);
-      g.setNode(`phase-${p.id}`, {});
-      members.forEach((s) => g.setParent(String(s.id), `phase-${p.id}`));
-    }
-  }
-
-  const neighbors = new Map<number, Set<number>>();
-  const incident = new Map<number, Set<number>>();
-  ids.forEach((id) => {
-    neighbors.set(id, new Set());
-    incident.set(id, new Set());
-  });
-
-  for (const e of rawEdges) {
-    e.isBack = back.has(`${e.from}->${e.to}`);
-    if (!e.isBack) g.setEdge(String(e.from), String(e.to));
-    neighbors.get(e.from)!.add(e.to);
-    neighbors.get(e.to)!.add(e.from);
-    incident.get(e.from)!.add(e.transitionId);
-    incident.get(e.to)!.add(e.transitionId);
-  }
-
-  dagre.layout(g);
-
-  const positions = new Map<number, { x: number; y: number }>();
-  ids.forEach((id) => {
-    const n = g.node(String(id));
-    if (n) positions.set(id, { x: n.x - NODE_W / 2, y: n.y - NODE_H / 2 });
-  });
-
-  const bands: Band[] = [];
-  phases
-    .filter((p) => usedPhaseIds.has(p.id))
-    .sort((a, b) => a.orderIndex - b.orderIndex)
-    .forEach((p) => {
-      const c = g.node(`phase-${p.id}`);
-      if (!c?.width) return;
-      bands.push({
-        id: p.id,
-        name: p.name,
-        color: p.color,
-        x: c.x - c.width / 2 - BAND_PAD,
-        y: c.y - c.height / 2 - BAND_PAD - BAND_LABEL_H,
-        w: c.width + BAND_PAD * 2,
-        h: c.height + BAND_PAD * 2 + BAND_LABEL_H,
-      });
-    });
-
-  return { positions, edges: rawEdges, neighbors, incident, bands };
-}
-
-function buildBandNodes(model: GraphModel): Node[] {
-  return model.bands.map((b) => ({
-    id: `band-${b.id}`,
-    type: 'band',
-    position: { x: b.x, y: b.y },
-    data: { name: b.name, color: b.color } satisfies BandNodeData,
-    draggable: false,
-    selectable: false,
-    focusable: false,
-    deletable: false,
-    connectable: false,
-    zIndex: 0,
-    style: { width: b.w, height: b.h, pointerEvents: 'none' as const },
-  }));
-}
-
-function buildNodes(steps: WorkflowStep[], model: GraphModel, entryStepId?: number | null): Node[] {
-  const backIds = new Set(model.edges.filter((e) => e.isBack).map((e) => e.transitionId));
-  return steps.map((s) => {
-    const forwardOut = s.transitions.filter((t) => !backIds.has(t.id));
-    const flag = flagMeta(s.flag);
-    return {
-      id: String(s.id),
-      type: 'step',
-      position: model.positions.get(s.id) ?? { x: 0, y: 0 },
-      zIndex: 1,
-      data: {
-        name: s.name,
-        roleName: s.businessRoles.map((r) => r.name).join(', ') || undefined,
-        roleColor: s.businessRoles[0]?.color ?? undefined,
-        isEntry: entryStepId != null && entryStepId === s.id,
-        isTerminal: s.transitions.length === 0,
-        isDecision: forwardOut.length > 1,
-        dimmed: false,
-        flagColor: flag?.color,
-        flagLabel: flag ? `标记：${flag.label}` : undefined,
-      } satisfies StepNodeData,
-      deletable: false,
-      connectable: false,
-    };
-  });
-}
-
-function buildEdges(model: GraphModel): Edge[] {
-  return model.edges.map((e) => ({
-    id: `t${e.transitionId}`,
-    source: String(e.from),
-    target: String(e.to),
-    sourceHandle: e.isBack ? 'r' : 'b',
-    targetHandle: e.isBack ? 'rt' : 't',
-    type: e.isBack ? 'default' : 'smoothstep',
-    hidden: false,
-  }));
 }
 
 export function WorkflowGraph({ tree, phases, selectedId, onSelect }: Readonly<WorkflowGraphProps>) {
-  const steps = useMemo(() => flatten(tree), [tree]);
-  // The first root step is the implicit entry: DFS seed for rollback detection + green marker.
-  const entryStepId = tree[0]?.id ?? null;
+  const mode = useThemeStore((s) => s.mode);
   const hasPhases = phases.length > 0;
   const [showRollback, setShowRollback] = useState(true);
   const [showPhases, setShowPhases] = useState(true);
-  const usePhases = hasPhases && showPhases;
+  const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [zoomPct, setZoomPct] = useState(100);
+  const [renderNonce, setRenderNonce] = useState(0);
 
-  const model = useMemo(
-    () => buildModel(steps, entryStepId, phases, usePhases),
-    [steps, entryStepId, phases, usePhases],
+  const mermaidRef = useRef<MermaidApi | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const graphRef = useRef<HTMLDivElement>(null);
+  const panRef = useRef<PanZoom | null>(null);
+  const fittedRef = useRef(false);
+  const refitNextRef = useRef(false);
+
+  const usePhases = hasPhases && showPhases;
+  const model = useMemo(() => buildMermaidModel(tree, phases, usePhases), [tree, phases, usePhases]);
+  const source = useMemo(
+    () =>
+      generateMermaidSource(model, {
+        collapsed,
+        showRoles: true,
+        showFlags: true,
+        showBack: showRollback,
+        carets: true,
+      }),
+    [model, collapsed, showRollback],
   );
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([
-    ...buildBandNodes(model),
-    ...buildNodes(steps, model, entryStepId),
-  ]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(buildEdges(model));
+  const collapseStep = (id: number) =>
+    setCollapsed((prev) => new Set(prev).add(id));
+  const expandStep = (id: number) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
 
-  const [hoveredId, setHoveredId] = useState<number | null>(null);
-
+  // Load Mermaid lazily (only when the graph view mounts).
   useEffect(() => {
-    setNodes([...buildBandNodes(model), ...buildNodes(steps, model, entryStepId)]);
-    setEdges(buildEdges(model));
+    let cancelled = false;
+    import('mermaid')
+      .then((mod) => {
+        if (cancelled) return;
+        mermaidRef.current = mod.default as unknown as MermaidApi;
+        setReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // (Re)initialize theme whenever the app theme flips.
+  useEffect(() => {
+    if (!ready || !mermaidRef.current) return;
+    mermaidRef.current.initialize({
+      startOnLoad: false,
+      theme: mode === 'dark' ? 'dark' : 'neutral',
+      securityLevel: 'strict',
+      suppressErrorRendering: true,
+      // htmlLabels:false keeps labels as SVG <text> so they stay crisp under CSS scale.
+      flowchart: { htmlLabels: false, curve: 'basis' },
+    });
+    setRenderNonce((n) => n + 1);
+  }, [ready, mode]);
+
+  // Set up pan/zoom once the stage is mounted.
+  useEffect(() => {
+    if (!ready || !stageRef.current || !viewportRef.current || panRef.current) return;
+    panRef.current = createPanZoom(stageRef.current, viewportRef.current, (s) =>
+      setZoomPct(Math.round(s * 100)),
+    );
+    return () => {
+      panRef.current?.destroy();
+      panRef.current = null;
+    };
+  }, [ready]);
+
+  // Render the diagram whenever the source (or theme) changes.
+  useEffect(() => {
+    if (!ready || !mermaidRef.current || !graphRef.current) return;
+    let cancelled = false;
+    const host = graphRef.current;
+    const run = async () => {
+      let svgCode: string;
+      try {
+        const res = await mermaidRef.current!.render(`wfgraph-${renderNonce}-${Date.now()}`, source);
+        svgCode = res.svg;
+      } catch {
+        if (!cancelled) setFailed(true);
+        return;
+      }
+      if (cancelled) return;
+      setFailed(false);
+      host.innerHTML = svgCode;
+      const svg = host.querySelector('svg');
+      if (!svg) return;
+      svg.removeAttribute('height');
+      svg.style.maxWidth = 'none';
+
+      svg.querySelectorAll('g.node').forEach((n) => {
+        const id = nodeStepId(n, model);
+        if (id == null) return;
+        const collapsedParent = model.steps[id].kids.length > 0;
+        (n as HTMLElement).style.cursor = 'pointer';
+        n.addEventListener('click', (e) => {
+          e.stopPropagation();
+          onSelect(id);
+          if (collapsedParent) expandStep(id);
+        });
+      });
+      svg.querySelectorAll('g.cluster').forEach((c) => {
+        const id = clusterStepId(c, model);
+        if (id == null) return;
+        (c as HTMLElement).style.cursor = 'pointer';
+        c.addEventListener('click', (e) => {
+          e.stopPropagation();
+          onSelect(id);
+          collapseStep(id);
+        });
+      });
+
+      const doFit = !fittedRef.current || refitNextRef.current;
+      fittedRef.current = true;
+      refitNextRef.current = false;
+      panRef.current?.bind(svg as SVGSVGElement, doFit);
+      setRenderNonce((n) => n + 1);
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model]);
+  }, [source, ready, mode]);
 
-  const activeId = hoveredId ?? selectedId;
+  // Highlight the selected step without re-rendering the whole diagram.
+  useEffect(() => {
+    const host = graphRef.current;
+    const svg = host?.querySelector('svg');
+    if (!svg) return;
+    svg
+      .querySelectorAll('.wf-node-selected, .wf-cluster-selected')
+      .forEach((el) => el.classList.remove('wf-node-selected', 'wf-cluster-selected'));
+    if (selectedId == null) return;
+    const node = [...svg.querySelectorAll('g.node')].find((n) => nodeStepId(n, model) === selectedId);
+    if (node) {
+      node.classList.add('wf-node-selected');
+      return;
+    }
+    const cluster = [...svg.querySelectorAll('g.cluster')].find(
+      (c) => clusterStepId(c, model) === selectedId,
+    );
+    if (cluster) cluster.classList.add('wf-cluster-selected');
+  }, [selectedId, renderNonce, model]);
 
-  const displayNodes = useMemo(() => {
-    return nodes.map((n) => {
-      if (n.type !== 'step') return n;
-      const id = Number(n.id);
-      const near = activeId != null ? (model.neighbors.get(activeId) ?? new Set<number>()) : null;
-      const dimmed = activeId != null && id !== activeId && !near!.has(id);
-      return { ...n, data: { ...n.data, dimmed } };
+  const collapseAll = () => {
+    refitNextRef.current = true;
+    const next = new Set<number>();
+    Object.values(model.steps).forEach((s) => {
+      if (s.kids.length > 0) next.add(s.id);
     });
-  }, [nodes, activeId, model]);
-
-  const displayEdges = useMemo(() => {
-    const incidentToActive = activeId != null ? (model.incident.get(activeId) ?? new Set<number>()) : null;
-    const byId = new Map(model.edges.map((m) => [`t${m.transitionId}`, m]));
-    return edges.map((e) => {
-      const raw = byId.get(e.id)!;
-      if (raw.isBack && !showRollback) return { ...e, hidden: true };
-      const focused = incidentToActive?.has(raw.transitionId) ?? false;
-      const dim = activeId != null && !focused;
-      const color = raw.isBack ? '#ff4d4f' : '#8c8c8c';
-      return {
-        ...e,
-        hidden: false,
-        animated: raw.isBack && focused,
-        label: focused ? (raw.label ?? undefined) : undefined,
-        labelStyle: { fontSize: 11, fill: raw.isBack ? '#ff4d4f' : '#595959' },
-        labelBgStyle: { fill: 'var(--ant-color-bg-container, #fff)', fillOpacity: 0.9 },
-        labelBgPadding: [4, 2] as [number, number],
-        labelBgBorderRadius: 4,
-        style: {
-          stroke: color,
-          strokeWidth: focused ? 2 : 1,
-          strokeDasharray: raw.isBack ? '5 4' : undefined,
-          opacity: dim ? 0.12 : 1,
-        },
-        markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
-      };
-    });
-  }, [edges, activeId, showRollback, model]);
+    setCollapsed(next);
+  };
+  const expandAll = () => {
+    refitNextRef.current = true;
+    setCollapsed(new Set());
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <style>{`
+        .wf-node-selected > rect,
+        .wf-node-selected > polygon,
+        .wf-node-selected > path,
+        .wf-node-selected > circle { stroke: #1677ff !important; stroke-width: 3px !important; }
+        .wf-cluster-selected > rect { stroke: #1677ff !important; stroke-width: 2px !important; }
+      `}</style>
       <Space size={16} wrap style={{ paddingInline: 4 }}>
         <Space size={4}>
           <Switch size="small" checked={showRollback} onChange={setShowRollback} />
@@ -410,6 +358,14 @@ export function WorkflowGraph({ tree, phases, selectedId, onSelect }: Readonly<W
             <Typography.Text style={{ fontSize: 12 }}>Show phases</Typography.Text>
           </Space>
         )}
+        <Space size={4}>
+          <Button size="small" onClick={collapseAll}>
+            Collapse all
+          </Button>
+          <Button size="small" onClick={expandAll}>
+            Expand all
+          </Button>
+        </Space>
         <Space size={12} style={{ fontSize: 11 }}>
           <span style={{ color: '#52c41a' }}>▶ Entry</span>
           <span style={{ color: '#faad14' }}>◆ Decision</span>
@@ -417,33 +373,83 @@ export function WorkflowGraph({ tree, phases, selectedId, onSelect }: Readonly<W
             rollback
           </Tag>
           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            hover a step to focus
+            click a step to open it · click a group to collapse
           </Typography.Text>
         </Space>
       </Space>
-      <div style={{ height: 620, border: '1px solid rgba(5,5,5,0.06)', borderRadius: 8 }}>
-        <ReactFlow
-          nodes={displayNodes}
-          edges={displayEdges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeClick={(_, node) => {
-            if (node.type === 'step') onSelect(Number(node.id));
+      <div
+        ref={stageRef}
+        style={{
+          position: 'relative',
+          height: 620,
+          overflow: 'hidden',
+          border: '1px solid rgba(5,5,5,0.06)',
+          borderRadius: 8,
+          background: 'var(--ant-color-bg-layout, #f5f5f5)',
+          cursor: 'grab',
+          touchAction: 'none',
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            zIndex: 5,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
           }}
-          onNodeMouseEnter={(_, node) => {
-            if (node.type === 'step') setHoveredId(Number(node.id));
-          }}
-          onNodeMouseLeave={() => setHoveredId(null)}
-          nodesConnectable={false}
-          elementsSelectable
-          fitView
-          minZoom={0.1}
-          proOptions={{ hideAttribution: true }}
         >
-          <Background />
-          <Controls showInteractive={false} />
-        </ReactFlow>
+          <Button size="small" onClick={() => panRef.current?.zoomOut()} aria-label="Zoom out">
+            −
+          </Button>
+          <span
+            style={{
+              minWidth: 44,
+              textAlign: 'center',
+              fontSize: 12,
+              color: '#595959',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {zoomPct}%
+          </span>
+          <Button size="small" onClick={() => panRef.current?.zoomIn()} aria-label="Zoom in">
+            +
+          </Button>
+          <Button size="small" onClick={() => panRef.current?.fit()}>
+            Fit
+          </Button>
+          <Button size="small" onClick={() => panRef.current?.reset()}>
+            1:1
+          </Button>
+        </div>
+        {failed && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 12,
+              left: 12,
+              zIndex: 5,
+              maxWidth: 360,
+              padding: '8px 12px',
+              background: '#fff2f0',
+              border: '1px solid #ffccc7',
+              borderRadius: 8,
+              color: '#a8071a',
+              fontSize: 12,
+            }}
+          >
+            Could not render the diagram. If this persists, reload the page.
+          </div>
+        )}
+        <div
+          ref={viewportRef}
+          style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0' }}
+        >
+          <div ref={graphRef} style={{ display: 'inline-block' }} />
+        </div>
       </div>
     </div>
   );

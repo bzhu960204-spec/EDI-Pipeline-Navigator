@@ -9,11 +9,13 @@ public class AppProperties {
     private final Admin admin = new Admin();
     private final Storage storage = new Storage();
     private final Cors cors = new Cors();
+    private final Workflow workflow = new Workflow();
 
     public Jwt getJwt() { return jwt; }
     public Admin getAdmin() { return admin; }
     public Storage getStorage() { return storage; }
     public Cors getCors() { return cors; }
+    public Workflow getWorkflow() { return workflow; }
 
     public static class Jwt {
         private String secret;
@@ -43,5 +45,12 @@ public class AppProperties {
         private String allowedOrigins = "http://localhost:5173";
         public String getAllowedOrigins() { return allowedOrigins; }
         public void setAllowedOrigins(String allowedOrigins) { this.allowedOrigins = allowedOrigins; }
+    }
+
+    public static class Workflow {
+        /** Maximum folder nesting depth (root = level 1). */
+        private int folderMaxDepth = 3;
+        public int getFolderMaxDepth() { return folderMaxDepth; }
+        public void setFolderMaxDepth(int folderMaxDepth) { this.folderMaxDepth = folderMaxDepth; }
     }
 }

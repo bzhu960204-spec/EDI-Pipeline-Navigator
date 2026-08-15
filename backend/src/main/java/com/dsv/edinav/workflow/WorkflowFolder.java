@@ -19,6 +19,9 @@ public class WorkflowFolder {
     /** The user who owns this folder; folders are private per user. */
     private Long ownerId;
 
+    /** Parent folder id for nesting; null means a top-level folder. */
+    private Long parentId;
+
     @Column(nullable = false, length = 120)
     private String name;
 
@@ -37,6 +40,9 @@ public class WorkflowFolder {
 
     public Long getOwnerId() { return ownerId; }
     public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
+
+    public Long getParentId() { return parentId; }
+    public void setParentId(Long parentId) { this.parentId = parentId; }
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }

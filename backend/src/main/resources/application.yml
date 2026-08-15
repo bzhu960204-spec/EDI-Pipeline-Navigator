@@ -43,3 +43,6 @@ app:
     root: ./data/artifacts
   cors:
     allowed-origins: http://localhost:5173
+  workflow:
+    # Maximum folder nesting depth (root folder = level 1)
+    folder-max-depth: 3

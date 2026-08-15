@@ -16,7 +16,8 @@ final class WorkflowMapper {
     }
 
     static WorkflowFolderDto toFolderDto(WorkflowFolder f) {
-        return new WorkflowFolderDto(f.getId(), f.getName(), f.getColor(), f.getDescription(), f.getOrderIndex());
+        return new WorkflowFolderDto(f.getId(), f.getParentId(), f.getName(), f.getColor(),
+                f.getDescription(), f.getOrderIndex());
     }
 
     static WorkflowPhaseDto toPhaseDto(WorkflowPhase phase) {

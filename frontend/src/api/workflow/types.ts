@@ -2,6 +2,7 @@ export type WorkflowStatus = 'DRAFT' | 'PUBLISHED';
 
 export interface WorkflowFolder {
   id: number;
+  parentId?: number | null;
   name: string;
   color?: string | null;
   description?: string | null;
@@ -200,4 +201,5 @@ export interface WorkflowFolderPayload {
   color?: string;
   description?: string;
   orderIndex?: number;
+  parentId?: number | null;
 }

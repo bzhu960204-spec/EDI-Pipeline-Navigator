@@ -128,6 +128,8 @@ interface DocContext {
   nameById: Map<number, string>;
   /** toStepId -> list of steps that transition into it, for "Previous" backlinks. */
   incoming: Map<number, IncomingRef[]>;
+  /** coFireGroupId -> the arrivals that must all fire together (AND). */
+  coFire: Map<number, IncomingRef[]>;
 }
 
 function flattenSteps(tree: WorkflowStep[]): WorkflowStep[] {
@@ -145,14 +147,19 @@ function buildContext(tree: WorkflowStep[], numbers: Map<number, string>): DocCo
   const all = flattenSteps(tree);
   const nameById = new Map<number, string>();
   const incoming = new Map<number, IncomingRef[]>();
+  const coFire = new Map<number, IncomingRef[]>();
   all.forEach((s) => nameById.set(s.id, s.name));
   all.forEach((s) => {
     s.transitions.forEach((t) => {
       if (!incoming.has(t.toStepId)) incoming.set(t.toStepId, []);
       incoming.get(t.toStepId)!.push({ fromId: s.id, label: t.label ?? null });
+      if (t.coFireGroupId != null) {
+        if (!coFire.has(t.coFireGroupId)) coFire.set(t.coFireGroupId, []);
+        coFire.get(t.coFireGroupId)!.push({ fromId: s.id, label: t.label ?? null });
+      }
     });
   });
-  return { numbers, nameById, incoming };
+  return { numbers, nameById, incoming, coFire };
 }
 
 function renderPrevious(step: WorkflowStep, ctx: DocContext): string {
@@ -170,7 +177,7 @@ function renderPrevious(step: WorkflowStep, ctx: DocContext): string {
   return `<div class="prev"><span class="prev-title">Previous</span><ul>${rows}</ul></div>`;
 }
 
-function renderNext(step: WorkflowStep, numbers: Map<number, string>): string {
+function renderNext(step: WorkflowStep, ctx: DocContext): string {
   if (step.transitions.length === 0) return '';
   const groups = groupTransitions(step.transitions);
   const isDecision = groups.length > 1;
@@ -178,8 +185,8 @@ function renderNext(step: WorkflowStep, numbers: Map<number, string>): string {
     .map((group) => {
       const targets = group.targets
         .map((t) => {
-          const num = numbers.get(t.toStepId);
-          const coFire = t.coFireGroupId != null ? ' <span class="pill cofire">co-fire</span>' : '';
+          const num = ctx.numbers.get(t.toStepId);
+          const coFire = renderCoFirePill(step, t, ctx);
           const ref = num ? `<span class="ref">${escapeHtml(num)}</span> ` : '';
           return `<a class="xref" href="#s${t.toStepId}">${ref}${escapeHtml(t.toStepName)}</a>${coFire}`;
         })
@@ -192,6 +199,25 @@ function renderNext(step: WorkflowStep, numbers: Map<number, string>): string {
     .join('');
   const heading = isDecision ? 'Branches to' : 'Next';
   return `<div class="next"><span class="next-title">${heading}</span><ul>${rows}</ul></div>`;
+}
+
+// Co-fire pill with a hover tooltip listing the other arrivals in the same group.
+function renderCoFirePill(step: WorkflowStep, t: Transition, ctx: DocContext): string {
+  if (t.coFireGroupId == null) return '';
+  const others = (ctx.coFire.get(t.coFireGroupId) ?? []).filter((m) => m.fromId !== step.id);
+  const items = others
+    .map((m) => {
+      const num = ctx.numbers.get(m.fromId);
+      const ref = num ? `<span class="ref">${escapeHtml(num)}</span> ` : '';
+      const label = m.label ? `<span class="cond">${escapeHtml(m.label)}</span> ` : '';
+      const name = ctx.nameById.get(m.fromId) ?? '';
+      return `<li>${label}<a class="xref" href="#s${m.fromId}">${ref}${escapeHtml(name)}</a></li>`;
+    })
+    .join('');
+  const body = items
+    ? `<span class="cofire-tip-title">Co-fires with:</span><ul>${items}</ul>`
+    : '<span class="cofire-tip-title">No other arrivals in this group.</span>';
+  return ` <span class="cofire-wrap"><span class="pill cofire">co-fire</span><span class="cofire-tip">${body}</span></span>`;
 }
 
 function renderBadges(step: WorkflowStep): string {
@@ -232,7 +258,7 @@ function renderStep(
           .join('')}</ul></div>`
       : '';
   const previous = renderPrevious(step, ctx);
-  const next = renderNext(step, ctx.numbers);
+  const next = renderNext(step, ctx);
   const hasChildren = !!step.children?.length;
   const children = hasChildren
     ? step
@@ -450,6 +476,18 @@ const STYLES = `
   .pill { border-radius: 10px; padding: 0 8px; font-size: 11px; font-weight: 600; }
   .pill.parallel { background: #f6ffed; color: #389e0d; border: 1px solid #b7eb8f; }
   .pill.cofire { background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; }
+  .cofire-wrap { position: relative; display: inline-block; }
+  .cofire-wrap .pill.cofire { cursor: help; }
+  .cofire-tip { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 20; min-width: 180px; max-width: 300px;
+    background: #1f1f1f; color: #fff; border-radius: 6px; padding: 8px 10px; font-size: 12px; font-weight: 400;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.28); opacity: 0; visibility: hidden; transition: opacity 0.12s; pointer-events: none; }
+  .cofire-wrap:hover .cofire-tip { opacity: 1; visibility: visible; }
+  .cofire-tip-title { font-weight: 600; }
+  .cofire-tip ul { margin: 4px 0 0; padding-left: 16px; }
+  .cofire-tip li { margin: 2px 0; }
+  .cofire-tip .xref { color: #91caff; border-bottom-color: #91caff; }
+  .cofire-tip .cond { color: #d3adf7; }
+  .cofire-tip .ref { color: #fff; }
   .flag { display: inline-block; width: 9px; height: 9px; border-radius: 9px; }
   .flag-label { font-size: 11px; color: #8c8c8c; }
   .children { margin-top: 6px; }
