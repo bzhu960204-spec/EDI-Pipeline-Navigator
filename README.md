@@ -134,10 +134,6 @@ exported file re-imports cleanly. Unknown fields are ignored, so older exports s
   "name": "JP-MBL Import Parsing",
   "description": "Reusable sub-workflow for parsing JP MBL import files",
   "status": "DRAFT",             // "DRAFT" | "PUBLISHED" (defaults to DRAFT)
-  "phases": [                    // optional swimlanes; steps attach via "phase"
-    { "ref": "intake",  "name": "Intake",     "color": "#1677ff", "orderIndex": 0 },
-    { "ref": "process", "name": "Processing", "color": "#52c41a", "orderIndex": 1 }
-  ],
   "steps": [
     {
       "ref": "receive",          // unique key within this file
@@ -145,17 +141,47 @@ exported file re-imports cleanly. Unknown fields are ignored, so older exports s
       "description": "Pick up inbound EDI from the LW mailbox",
       "notes": "Runs every 5 min",
       "roles": ["EDI Developer", "QA"],  // names, resolved/created; a step may have several
-      "phase": "intake",         // a phase ref (optional)
       "children": [
-        { "ref": "validate", "name": "Validate envelope", "roles": ["QA"], "phase": "intake" }
+        {
+          "ref": "validate",
+          "name": "Validate envelope",
+          "description": "Verify ISA/GS headers and envelope control numbers",
+          "notes": "Fails fast if envelope control number is duplicated",
+          "roles": ["QA"]
+        }
       ]
     },
-    { "ref": "parse",  "name": "Parse segments",  "roles": ["EDI Developer"], "phase": "process" },
-    { "ref": "reject", "name": "Reject & notify", "role": "QA" },
-    { "ref": "enrich", "name": "Enrich data",   "phase": "process" },
-    { "ref": "archive", "name": "Archive",       "phase": "process" }
+    {
+      "ref": "parse",
+      "name": "Parse segments",
+      "description": "Extract transaction set body and parse mandatory EDI segments into staging tables",
+      "notes": "Requires ITX Type Tree mapping v2.1",
+      "roles": ["EDI Developer"]
+    },
+    {
+      "ref": "reject",
+      "name": "Reject & notify",
+      "description": "Generate rejection acknowledgment and dispatch email alerts",
+      "notes": "Sends alert to EDI Operations mailing list",
+      "roles": ["QA"]
+    },
+    {
+      "ref": "enrich",
+      "name": "Enrich data",
+      "description": "Lookup master data (UN/LOCODE, partner IDs) to supplement parsing results",
+      "notes": "Connects to Master Data API via HTTPS",
+      "roles": ["EDI Developer"]
+    },
+    {
+      "ref": "archive",
+      "name": "Archive",
+      "description": "Move processed raw file and parsed payload to long-term storage",
+      "notes": "Retention period set to 30 days",
+      "roles": ["EDI Developer", "QA"]
+    }
   ],
   "transitions": [
+    // json format加入了一些新的特性，一个条件可以开启多步，coFire的意思是多个步骤一起才能进入另一步，你可以使用这些新特性
     // one condition opens several steps: "On valid" starts parse AND enrich together (parallel)
     { "from": "validate", "to": "parse",  "label": "On valid" },
     { "from": "validate", "to": "enrich", "label": "On valid" },
