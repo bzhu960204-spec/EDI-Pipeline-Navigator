@@ -11,6 +11,7 @@ import {
   FileTextOutlined,
   UnorderedListOutlined,
   ContainerOutlined,
+  GoldOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -29,6 +30,7 @@ export function AppLayout() {
     if (location.pathname.startsWith('/workflow/roles')) return '/workflow/roles';
     if (location.pathname.startsWith('/workflow')) return '/workflow';
     if (location.pathname.startsWith('/schema-templates')) return '/schema-templates';
+    if (location.pathname.startsWith('/knowledge')) return '/knowledge';
     if (location.pathname.startsWith('/artifacts/templates')) return '/artifacts/templates';
     if (location.pathname.startsWith('/artifacts')) return '/artifacts';
     return '/';
@@ -36,6 +38,12 @@ export function AppLayout() {
 
   const menuItems = [
     { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
+    {
+      key: 'knowledge',
+      icon: <GoldOutlined />,
+      label: 'Knowledge Trees',
+      children: [{ key: '/knowledge', icon: <PartitionOutlined />, label: 'My Knowledge Trees' }],
+    },
     {
       key: 'procedure',
       icon: <ApartmentOutlined />,
@@ -73,7 +81,7 @@ export function AppLayout() {
           theme="dark"
           mode="inline"
           selectedKeys={[selectedKey]}
-          defaultOpenKeys={['procedure', 'artifact']}
+          defaultOpenKeys={['knowledge', 'procedure', 'artifact']}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
         />

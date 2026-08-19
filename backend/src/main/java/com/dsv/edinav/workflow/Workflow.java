@@ -48,7 +48,7 @@ public class Workflow {
     private Long groupId;
 
     /** Version number within the group, starting at 1. */
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "integer default 1")
     private int version = 1;
 
     /** Optional human label for this version, e.g. "before Schenker fix". */

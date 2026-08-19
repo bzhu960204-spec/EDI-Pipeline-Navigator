@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { App as AntApp, Button, Checkbox, Col, Collapse, Dropdown, Input, Modal, Row, Segmented, Space, Spin, Tag, Tree, Typography, Upload } from 'antd';
 import type { MenuProps } from 'antd';
-import { ApartmentOutlined, ArrowLeftOutlined, BranchesOutlined, CheckOutlined, DownOutlined, ExportOutlined, GroupOutlined, ImportOutlined, InboxOutlined, MoreOutlined, PartitionOutlined, PlusOutlined, StarOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, ArrowLeftOutlined, BranchesOutlined, CheckOutlined, DownOutlined, EditOutlined, ExportOutlined, GroupOutlined, ImportOutlined, InboxOutlined, MoreOutlined, PartitionOutlined, PlusOutlined, StarOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import {
@@ -43,6 +43,7 @@ import { CoFireModal } from './CoFireModal';
 import { PhaseManagerPanel } from './PhaseManagerPanel';
 import { WorkflowGraph } from './WorkflowGraph';
 import { VersionManagerModal } from './VersionManagerModal';
+import { WorkflowEditorModal } from './WorkflowEditorModal';
 import { toPhaseGroupedTreeData, toTreeData } from './workflowTreeData';
 import { buildWorkflowHtml } from './workflowDocExport';
 import { buildWorkflowMermaidHtml } from './workflowMermaidExport';
@@ -84,6 +85,7 @@ export function WorkflowPage() {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [updateText, setUpdateText] = useState('');
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [navFocused, setNavFocused] = useState(false);
 
   const { data: workflow } = useQuery({
@@ -571,6 +573,11 @@ export function WorkflowPage() {
               <Button icon={<MoreOutlined />}>Actions</Button>
             </Dropdown>
             {admin && (
+              <Button icon={<EditOutlined />} onClick={() => setEditorOpen(true)}>
+                Edit
+              </Button>
+            )}
+            {admin && (
               <Button type="primary" icon={<PlusOutlined />} onClick={() => setStepModal({ mode: 'create-root' })}>
                 Add root step
               </Button>
@@ -781,6 +788,30 @@ export function WorkflowPage() {
           workflowId={workflowId}
           admin={admin}
           onClose={() => setVersionsOpen(false)}
+        />
+      )}
+
+      {workflow && (
+        <WorkflowEditorModal
+          open={editorOpen}
+          workflowId={workflowId}
+          workflowName={workflow.name}
+          roles={roles}
+          phases={phases}
+          onClose={() => setEditorOpen(false)}
+          onSaved={(newCurrentId) => {
+            setEditorOpen(false);
+            setSelectedId(null);
+            invalidate();
+            queryClient.invalidateQueries({ queryKey: ['workflows', workflowId] });
+            queryClient.invalidateQueries({ queryKey: ['workflows'] });
+            queryClient.invalidateQueries({ queryKey: ['versions', workflowId] });
+            queryClient.invalidateQueries({ queryKey: ['phases', workflowId] });
+            queryClient.invalidateQueries({ queryKey: ['wf-export', workflowId] });
+            if (newCurrentId && newCurrentId !== workflowId) {
+              navigate(`/workflow/edit/${newCurrentId}`, { state: { returnTo } });
+            }
+          }}
         />
       )}
     </div>
