@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Alert,
   App as AntApp,
@@ -157,19 +157,29 @@ export function SubWorkflowsPage() {
 
   const selectView = (next: LibraryView) => {
     setView(next);
-    localStorage.setItem(VIEW_STORAGE_KEY, next);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, next);
+    } catch {
+      /* ignore storage write failures */
+    }
   };
 
   // Nested collapses share one expandedKeys list; each reports only its own panel keys, so we
   // merge by replacing just the keys owned by that collapse and keeping the rest untouched.
   const setExpandScoped = (scopeKeys: string[], keys: string | string[]) => {
     const nowOpen = Array.isArray(keys) ? keys : [keys];
-    setExpandedKeys((prev) => {
-      const next = [...prev.filter((k) => !scopeKeys.includes(k)), ...nowOpen];
-      localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
+    setExpandedKeys((prev) => [...prev.filter((k) => !scopeKeys.includes(k)), ...nowOpen]);
   };
+
+  // Persist expanded state as a UI preference; storage may be unavailable (private mode / full
+  // quota), so failures are ignored rather than allowed to crash the page.
+  useEffect(() => {
+    try {
+      localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(expandedKeys));
+    } catch {
+      /* ignore storage write failures */
+    }
+  }, [expandedKeys]);
 
   const { data: workflows = [], isLoading } = useQuery({
     queryKey: ['workflows'],
@@ -447,7 +457,8 @@ export function SubWorkflowsPage() {
     });
   };
 
-  const columns: ColumnsType<Workflow> = [
+  const columns = useMemo<ColumnsType<Workflow>>(
+    () => [
     {
       title: 'Name',
       dataIndex: 'name',
@@ -519,7 +530,11 @@ export function SubWorkflowsPage() {
         </Space>
       ),
     },
-  ];
+  ],
+    // Handlers close over stable refs (navigate/form/mutations); searchParams affects openWorkflow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [admin, searchParams],
+  );
 
   const groupTable = (rows: Workflow[]) => (
     <Table
@@ -581,6 +596,7 @@ export function SubWorkflowsPage() {
                 items={childItems}
                 activeKey={expandedKeys}
                 onChange={(a) => setExpandScoped(childKeys, a)}
+                destroyInactivePanel
                 style={{ marginBottom: 12 }}
               />
             )}
@@ -622,6 +638,7 @@ export function SubWorkflowsPage() {
       items={groupItems}
       activeKey={expandedKeys}
       onChange={(a) => setExpandScoped(topLevelKeys, a)}
+      destroyInactivePanel
     />
   );
   let groupsView: ReactNode;
