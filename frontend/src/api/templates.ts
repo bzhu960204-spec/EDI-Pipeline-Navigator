@@ -1,5 +1,13 @@
 import { api } from './client';
 
+/** A checklist item definition on a template folder or the template root. */
+export interface TemplateChecklistItem {
+  id?: number;
+  label: string;
+  description?: string | null;
+  required: boolean;
+}
+
 export interface TemplateSummary {
   id: number;
   name: string;
@@ -12,6 +20,7 @@ export interface TemplateNode {
   name: string;
   description?: string | null;
   children: TemplateNode[];
+  checklist: TemplateChecklistItem[];
 }
 
 export interface TemplateDetail {
@@ -20,6 +29,7 @@ export interface TemplateDetail {
   description?: string | null;
   isDefault: boolean;
   nodes: TemplateNode[];
+  checklist: TemplateChecklistItem[];
 }
 
 /** A folder definition sent when creating/updating a template; children are nested folders. */
@@ -27,6 +37,7 @@ export interface TemplateNodeInput {
   name: string;
   description?: string | null;
   children: TemplateNodeInput[];
+  checklist: TemplateChecklistItem[];
 }
 
 export interface TemplatePayload {
@@ -34,6 +45,7 @@ export interface TemplatePayload {
   description?: string | null;
   isDefault: boolean;
   nodes: TemplateNodeInput[];
+  checklist: TemplateChecklistItem[];
 }
 
 export async function fetchTemplates(): Promise<TemplateSummary[]> {

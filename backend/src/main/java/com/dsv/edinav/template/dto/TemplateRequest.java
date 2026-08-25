@@ -10,5 +10,6 @@ public record TemplateRequest(
         @NotBlank @Size(max = 120) String name,
         @Size(max = 400) String description,
         boolean isDefault,
-        @Valid List<TemplateNodeInput> nodes
+        @Valid List<TemplateNodeInput> nodes,
+        @Valid List<ChecklistItemInput> checklist
 ) {}

@@ -7,5 +7,6 @@ public record TemplateDto(
         String name,
         String description,
         boolean isDefault,
-        List<TemplateNodeDto> nodes
+        List<TemplateNodeDto> nodes,
+        List<ChecklistItemDto> checklist
 ) {}

@@ -40,6 +40,7 @@ import {
   FolderOutlined,
   HomeOutlined,
   InboxOutlined,
+  ScheduleOutlined,
   SearchOutlined,
   SwapOutlined,
   UploadOutlined,
@@ -49,12 +50,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import {
   advanceArtifact,
+  assignChecklistItem,
   createFolder,
   deleteArtifact,
   deleteNode,
   downloadNode,
   exportArtifact,
   fetchArtifact,
+  fetchChecklist,
   fetchHistory,
   moveNode,
   renameNode,
@@ -64,6 +67,7 @@ import {
 } from '../../api/artifacts';
 import { extractErrorMessage } from '../../api/client';
 import { AdvanceStatusModal } from './AdvanceStatusModal';
+import { ChecklistTab } from './ChecklistTab';
 import { LogsPanel } from './LogsPanel';
 
 function formatBytes(bytes: number): string {
@@ -183,6 +187,11 @@ export function ArtifactDetailPage() {
     queryFn: () => fetchHistory(artifactId),
     enabled: Number.isFinite(artifactId),
   });
+  const { data: checklist } = useQuery({
+    queryKey: ['artifacts', artifactId, 'checklist'],
+    queryFn: () => fetchChecklist(artifactId),
+    enabled: Number.isFinite(artifactId),
+  });
 
   const treeData = useMemo<DataNode[]>(
     () =>
@@ -291,6 +300,17 @@ export function ArtifactDetailPage() {
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to move')),
   });
 
+  const assignChecklist = useMutation({
+    mutationFn: ({ itemId, nodeId }: { itemId: number; nodeId: number | null }) =>
+      assignChecklistItem(artifactId, itemId, nodeId),
+    onSuccess: (view) => {
+      queryClient.setQueryData(['artifacts', artifactId, 'checklist'], view);
+      queryClient.invalidateQueries({ queryKey: ['artifacts', artifactId] });
+      message.success('Checklist updated');
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to update checklist')),
+  });
+
   const removeNode = useMutation({
     mutationFn: (nodeId: number) => deleteNode(artifactId, nodeId),
     onSuccess: () => {
@@ -381,6 +401,20 @@ export function ArtifactDetailPage() {
           { key: 'rename', icon: <EditOutlined />, label: 'Rename' },
           { key: 'notes', icon: <FileTextOutlined />, label: 'Notes' },
           { key: 'download', icon: <DownloadOutlined />, label: 'Download' },
+          {
+            key: 'fulfill',
+            icon: <ScheduleOutlined />,
+            label: 'Fulfill checklist item',
+            children: (() => {
+              const items = checklist?.folders.find((f) => f.folderNodeId === (menuNode.parentId ?? null))?.items ?? [];
+              return items.length
+                ? items.map((it) => ({
+                    key: `assign:${it.id}`,
+                    label: `${it.satisfiedByNodeId === menuNode.id ? '✔ ' : ''}${it.label}${it.required ? ' *' : ''}`,
+                  }))
+                : [{ key: 'noChecklist', label: 'No checklist items in this folder', disabled: true }];
+            })(),
+          },
           { type: 'divider' },
           { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true },
         ]
@@ -393,6 +427,10 @@ export function ArtifactDetailPage() {
       return;
     }
     if (!menuNode) return;
+    if (typeof key === 'string' && key.startsWith('assign:')) {
+      assignChecklist.mutate({ itemId: Number(key.slice('assign:'.length)), nodeId: menuNode.id });
+      return;
+    }
     if (key === 'rename') openRename(menuNode);
     else if (key === 'notes') openNotes(menuNode);
     else if (key === 'download') handleDownload(menuNode);
@@ -699,6 +737,24 @@ export function ArtifactDetailPage() {
         defaultActiveKey="files"
         items={[
           { key: 'files', label: 'Files', children: filesTab },
+          {
+            key: 'checklist',
+            label: (
+              <Space size={6}>
+                <ScheduleOutlined />
+                Checklist
+                {checklist && checklist.summary.mandatoryTotal > 0 && (
+                  <Tag
+                    color={checklist.summary.complete ? 'success' : 'warning'}
+                    style={{ marginInlineEnd: 0 }}
+                  >
+                    {checklist.summary.mandatorySatisfied}/{checklist.summary.mandatoryTotal}
+                  </Tag>
+                )}
+              </Space>
+            ),
+            children: <ChecklistTab artifactId={artifactId} nodes={artifact.nodes} />,
+          },
           { key: 'workflow', label: 'Workflow & Logs', children: workflowTab },
         ]}
       />

@@ -6,5 +6,6 @@ public record TemplateNodeDto(
         Long id,
         String name,
         String description,
-        List<TemplateNodeDto> children
+        List<TemplateNodeDto> children,
+        List<ChecklistItemDto> checklist
 ) {}

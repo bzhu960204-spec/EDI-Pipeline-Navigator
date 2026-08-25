@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   App as AntApp,
   Breadcrumb,
   Button,
@@ -25,16 +26,20 @@ import type { DataNode } from 'antd/es/tree';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
+  CheckCircleOutlined,
   CopyOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  EditOutlined,
   FileTextOutlined,
   FolderAddOutlined,
   FolderOutlined,
   ImportOutlined,
   InboxOutlined,
+  LoadingOutlined,
   PlusOutlined,
   SaveOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -46,6 +51,8 @@ import {
   importTemplate,
   updateTemplate,
   updateTemplateFromImport,
+  type TemplateChecklistItem,
+  type TemplateDetail,
   type TemplateNode,
   type TemplateNodeInput,
   type TemplatePayload,
@@ -58,10 +65,56 @@ interface EditNode {
   name: string;
   description?: string;
   children: EditNode[];
+  checklist: TemplateChecklistItem[];
 }
 
 let keyCounter = 0;
 const nextKey = () => `n${++keyCounter}`;
+
+/** Virtual tree key for the template root (top level). Never produced by nextKey(). */
+const ROOT_KEY = '__root__';
+
+/** A locally persisted, not-yet-saved editing draft for one template (or a new one). */
+interface TemplateDraft {
+  payload: TemplatePayload;
+  signature: string;
+  ts: number;
+}
+
+const DRAFT_PREFIX = 'edinav:template-draft:';
+const EMPTY_SIGNATURE = JSON.stringify({
+  name: '',
+  description: null,
+  isDefault: false,
+  nodes: [],
+  checklist: [],
+});
+const draftKey = (id: number | 'new') => `${DRAFT_PREFIX}${id}`;
+
+function readDraft(id: number | 'new'): TemplateDraft | null {
+  try {
+    const raw = localStorage.getItem(draftKey(id));
+    return raw ? (JSON.parse(raw) as TemplateDraft) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(id: number | 'new', draft: TemplateDraft) {
+  try {
+    localStorage.setItem(draftKey(id), JSON.stringify(draft));
+  } catch {
+    /* storage full or unavailable — ignore */
+  }
+}
+
+function clearDraft(id: number | 'new') {
+  try {
+    localStorage.removeItem(draftKey(id));
+  } catch {
+    /* ignore */
+  }
+}
 
 function toEditTree(nodes: TemplateNode[]): EditNode[] {
   return nodes.map((n) => ({
@@ -69,7 +122,30 @@ function toEditTree(nodes: TemplateNode[]): EditNode[] {
     name: n.name,
     description: n.description ?? undefined,
     children: toEditTree(n.children ?? []),
+    checklist: (n.checklist ?? []).map((c) => ({ ...c })),
   }));
+}
+
+/** Rebuilds editable nodes with fresh keys from a persisted draft payload. */
+function inputToEditTree(nodes: TemplateNodeInput[]): EditNode[] {
+  return nodes.map((n) => ({
+    key: nextKey(),
+    name: n.name,
+    description: n.description ?? undefined,
+    children: inputToEditTree(n.children ?? []),
+    checklist: (n.checklist ?? []).map((c) => ({ ...c })),
+  }));
+}
+
+/** Normalized signature of the server-side template, matching the editor's payload shape. */
+function serverSignature(d: TemplateDetail): string {
+  return JSON.stringify({
+    name: d.name.trim(),
+    description: d.description?.trim() ? d.description.trim() : null,
+    isDefault: d.isDefault,
+    nodes: toInput(toEditTree(d.nodes)),
+    checklist: cleanChecklist((d.checklist ?? []).map((c) => ({ ...c }))),
+  });
 }
 
 function toInput(nodes: EditNode[]): TemplateNodeInput[] {
@@ -77,7 +153,19 @@ function toInput(nodes: EditNode[]): TemplateNodeInput[] {
     name: n.name.trim(),
     description: n.description?.trim() ? n.description.trim() : null,
     children: toInput(n.children),
+    checklist: cleanChecklist(n.checklist),
   }));
+}
+
+/** Drops blank-label items and trims text before sending to the API. */
+function cleanChecklist(items: TemplateChecklistItem[]): TemplateChecklistItem[] {
+  return (items ?? [])
+    .filter((c) => c.label.trim())
+    .map((c) => ({
+      label: c.label.trim(),
+      description: c.description?.trim() ? c.description.trim() : null,
+      required: c.required,
+    }));
 }
 
 function toTreeData(nodes: EditNode[]): DataNode[] {
@@ -204,10 +292,260 @@ function moveSibling(nodes: EditNode[], key: string, dir: -1 | 1): EditNode[] {
   return nodes.map((n) => ({ ...n, children: moveSibling(n.children, key, dir) }));
 }
 
+interface ChecklistEditorProps {
+  items: TemplateChecklistItem[];
+  admin: boolean;
+  onChange: (items: TemplateChecklistItem[]) => void;
+  title?: string;
+}
+
+const CHECKLIST_GRID = '96px minmax(0, 1.4fr) minmax(0, 1fr) 96px';
+
+/** Read-only, scannable presentation of a folder's expected-files checklist. */
+function ChecklistView({ items }: Readonly<{ items: TemplateChecklistItem[] }>) {
+  if (items.length === 0) {
+    return (
+      <Typography.Text type="secondary" italic>
+        No expected files defined for this folder.
+      </Typography.Text>
+    );
+  }
+  return (
+    <List
+      size="small"
+      dataSource={items}
+      split
+      renderItem={(it) => (
+        <List.Item style={{ paddingInline: 0, alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%' }}>
+            <Tooltip title={it.required ? 'Mandatory' : 'Optional'}>
+              <Tag
+                color={it.required ? 'red' : 'default'}
+                style={{ marginTop: 2, minWidth: 22, marginInlineEnd: 0, textAlign: 'center' }}
+              >
+                {it.required ? 'M' : 'O'}
+              </Tag>
+            </Tooltip>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <Typography.Text
+                style={{ fontFamily: 'var(--font-mono, monospace)', overflowWrap: 'anywhere' }}
+              >
+                {it.label}
+              </Typography.Text>
+              {it.description?.trim() && (
+                <Typography.Paragraph
+                  type="secondary"
+                  style={{ margin: '2px 0 0', fontSize: 12, whiteSpace: 'pre-wrap' }}
+                >
+                  {it.description}
+                </Typography.Paragraph>
+              )}
+            </div>
+          </div>
+        </List.Item>
+      )}
+    />
+  );
+}
+
+/** Spacious grid editor for a checklist, intended to live inside a wide modal. */
+function ChecklistTable({
+  items,
+  onChange,
+}: Readonly<{ items: TemplateChecklistItem[]; onChange: (items: TemplateChecklistItem[]) => void }>) {
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+
+  const patch = (idx: number, part: Partial<TemplateChecklistItem>) =>
+    onChange(items.map((it, i) => (i === idx ? { ...it, ...part } : it)));
+  const add = () => onChange([...items, { label: '', description: '', required: true }]);
+  const remove = (idx: number) => onChange(items.filter((_, i) => i !== idx));
+  const move = (idx: number, dir: -1 | 1) => {
+    const target = idx + dir;
+    if (target < 0 || target >= items.length) return;
+    const next = [...items];
+    [next[idx], next[target]] = [next[target], next[idx]];
+    onChange(next);
+  };
+
+  const applyBulk = () => {
+    const parsed = bulkText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map<TemplateChecklistItem>((label) => ({ label, description: '', required: true }));
+    if (parsed.length > 0) onChange([...items, ...parsed]);
+    setBulkText('');
+    setBulkOpen(false);
+  };
+
+  return (
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      {items.length === 0 ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="No expected files yet. Add the files reviewers should look for in this folder."
+        />
+      ) : (
+        <div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: CHECKLIST_GRID,
+              gap: 12,
+              padding: '0 4px 6px',
+              fontSize: 12,
+              color: 'rgba(140,140,140,1)',
+            }}
+          >
+            <span>Required</span>
+            <span>File name / pattern</span>
+            <span>Note</span>
+            <span style={{ textAlign: 'right' }}>Order</span>
+          </div>
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            {items.map((it, idx) => (
+              <div
+                key={idx}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: CHECKLIST_GRID,
+                  gap: 12,
+                  alignItems: 'start',
+                }}
+              >
+                <Tag
+                  color={it.required ? 'red' : 'default'}
+                  onClick={() => patch(idx, { required: !it.required })}
+                  style={{ cursor: 'pointer', textAlign: 'center', marginTop: 4, userSelect: 'none' }}
+                >
+                  {it.required ? 'Mandatory' : 'Optional'}
+                </Tag>
+                <Input.TextArea
+                  value={it.label}
+                  maxLength={200}
+                  autoSize={{ minRows: 1, maxRows: 4 }}
+                  placeholder="e.g. DSV_<EDIT number>_JPMBL_1.0_ffid.json"
+                  onChange={(e) => patch(idx, { label: e.target.value })}
+                />
+                <Input.TextArea
+                  value={it.description ?? ''}
+                  maxLength={400}
+                  autoSize={{ minRows: 1, maxRows: 4 }}
+                  placeholder="Note (optional)"
+                  onChange={(e) => patch(idx, { description: e.target.value })}
+                />
+                <Space size={2} style={{ justifySelf: 'end', marginTop: 2 }}>
+                  <Tooltip title="Move up">
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<ArrowUpOutlined />}
+                      disabled={idx === 0}
+                      onClick={() => move(idx, -1)}
+                    />
+                  </Tooltip>
+                  <Tooltip title="Move down">
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<ArrowDownOutlined />}
+                      disabled={idx === items.length - 1}
+                      onClick={() => move(idx, 1)}
+                    />
+                  </Tooltip>
+                  <Tooltip title="Remove">
+                    <Button
+                      size="small"
+                      type="text"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => remove(idx)}
+                    />
+                  </Tooltip>
+                </Space>
+              </div>
+            ))}
+          </Space>
+        </div>
+      )}
+      <Space wrap>
+        <Button icon={<PlusOutlined />} onClick={add}>
+          Add file
+        </Button>
+        <Button icon={<ImportOutlined />} onClick={() => setBulkOpen(true)}>
+          Bulk add
+        </Button>
+      </Space>
+      <Modal
+        title="Bulk add expected files"
+        open={bulkOpen}
+        onOk={applyBulk}
+        onCancel={() => setBulkOpen(false)}
+        okText="Add"
+        okButtonProps={{ disabled: !bulkText.trim() }}
+      >
+        <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+          One file name per line. Each is added as a mandatory item; you can adjust afterwards.
+        </Typography.Paragraph>
+        <Input.TextArea
+          value={bulkText}
+          autoSize={{ minRows: 5, maxRows: 14 }}
+          placeholder={'DSV_<EDIT number>_JPMBL_1.0_ffid.json\nDSV_<EDIT number>_JPMBL_1.0_frer.json'}
+          onChange={(e) => setBulkText(e.target.value)}
+        />
+      </Modal>
+    </Space>
+  );
+}
+
+/**
+ * Compact checklist surface for the narrow details panel: always shows the read-only
+ * list, and (for admins) opens a wide modal for comfortable table editing.
+ */
+function ChecklistEditor({ items, admin, onChange, title }: Readonly<ChecklistEditorProps>) {
+  const [open, setOpen] = useState(false);
+  const mandatory = items.filter((i) => i.required).length;
+
+  return (
+    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+      <ChecklistView items={items} />
+      {admin && (
+        <>
+          <Button size="small" icon={<EditOutlined />} onClick={() => setOpen(true)}>
+            Edit expected files{items.length > 0 ? ` (${items.length})` : ''}
+          </Button>
+          <Modal
+            title={title ?? 'Expected files'}
+            open={open}
+            onCancel={() => setOpen(false)}
+            width={820}
+            footer={[
+              <Button key="done" type="primary" onClick={() => setOpen(false)}>
+                Done
+              </Button>,
+            ]}
+            styles={{ body: { maxHeight: '65vh', overflow: 'auto', paddingTop: 8 } }}
+          >
+            {items.length > 0 && (
+              <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+                {items.length} file{items.length === 1 ? '' : 's'}
+                {mandatory > 0 ? ` · ${mandatory} mandatory` : ''}
+              </Typography.Paragraph>
+            )}
+            <ChecklistTable items={items} onChange={onChange} />
+          </Modal>
+        </>
+      )}
+    </Space>
+  );
+}
+
 interface FolderDetailsProps {
   node: EditNode;
   admin: boolean;
   path: string[] | null;
+  isRoot?: boolean;
   onPatch: (patch: Partial<EditNode>) => void;
   onAddSubfolder: () => void;
   onMoveUp: () => void;
@@ -219,6 +557,7 @@ function FolderDetails({
   node,
   admin,
   path,
+  isRoot = false,
   onPatch,
   onAddSubfolder,
   onMoveUp,
@@ -256,14 +595,14 @@ function FolderDetails({
   };
 
   return (
-    <Card size="small" title="Folder details">
+    <Card size="small" title={isRoot ? 'Root details' : 'Folder details'}>
       <Space direction="vertical" size="small" style={{ width: '100%' }}>
-        {path && path.length > 0 && (
+        {!isRoot && path && path.length > 0 && (
           <Breadcrumb style={{ fontSize: 12 }} items={path.map((p) => ({ title: p }))} />
         )}
         <div>
-          <Typography.Text type="secondary">Folder name</Typography.Text>
-          {admin ? (
+          <Typography.Text type="secondary">{isRoot ? 'Root (template name)' : 'Folder name'}</Typography.Text>
+          {admin && !isRoot ? (
             <Input
               value={node.name}
               maxLength={200}
@@ -272,6 +611,11 @@ function FolderDetails({
           ) : (
             <div>
               <Typography.Text strong>{node.name.trim() || '(unnamed)'}</Typography.Text>
+              {isRoot && (
+                <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                  edited in “Name” above
+                </Typography.Text>
+              )}
             </div>
           )}
         </div>
@@ -279,22 +623,43 @@ function FolderDetails({
           <Typography.Text type="secondary">Purpose</Typography.Text>
           {renderPurpose()}
         </div>
+        <div>
+          <Typography.Text type="secondary">
+            {isRoot
+              ? 'Checklist (files expected at the top level)'
+              : 'Checklist (files expected in this folder)'}
+          </Typography.Text>
+          <ChecklistEditor
+            items={node.checklist}
+            admin={admin}
+            onChange={(items) => onPatch({ checklist: items })}
+            title={
+              isRoot
+                ? 'Expected files — template root'
+                : `Expected files — ${node.name.trim() || '(unnamed folder)'}`
+            }
+          />
+        </div>
         {admin && (
           <Space wrap>
             <Button size="small" icon={<FolderAddOutlined />} onClick={onAddSubfolder}>
-              Add subfolder
+              {isRoot ? 'Add root folder' : 'Add subfolder'}
             </Button>
-            <Button size="small" icon={<ArrowUpOutlined />} onClick={onMoveUp}>
-              Up
-            </Button>
-            <Button size="small" icon={<ArrowDownOutlined />} onClick={onMoveDown}>
-              Down
-            </Button>
-            <Popconfirm title="Delete this folder and its subfolders?" onConfirm={onDelete}>
-              <Button size="small" danger icon={<DeleteOutlined />}>
-                Delete
-              </Button>
-            </Popconfirm>
+            {!isRoot && (
+              <>
+                <Button size="small" icon={<ArrowUpOutlined />} onClick={onMoveUp}>
+                  Up
+                </Button>
+                <Button size="small" icon={<ArrowDownOutlined />} onClick={onMoveDown}>
+                  Down
+                </Button>
+                <Popconfirm title="Delete this folder and its subfolders?" onConfirm={onDelete}>
+                  <Button size="small" danger icon={<DeleteOutlined />}>
+                    Delete
+                  </Button>
+                </Popconfirm>
+              </>
+            )}
           </Space>
         )}
       </Space>
@@ -312,6 +677,7 @@ export function DirectoryTemplatesPage() {
   const [description, setDescription] = useState('');
   const [isDefault, setIsDefault] = useState(false);
   const [tree, setTree] = useState<EditNode[]>([]);
+  const [rootChecklist, setRootChecklist] = useState<TemplateChecklistItem[]>([]);
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
@@ -319,6 +685,11 @@ export function DirectoryTemplatesPage() {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [updateText, setUpdateText] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [savedSignature, setSavedSignature] = useState(EMPTY_SIGNATURE);
+  const [recoverable, setRecoverable] = useState<TemplateDraft | null>(null);
+
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['templates'],
@@ -338,8 +709,12 @@ export function DirectoryTemplatesPage() {
       setDescription('');
       setIsDefault(false);
       setTree([]);
+      setRootChecklist([]);
       setSelectedNodeKey(null);
-      setExpandedKeys([]);
+      setExpandedKeys([ROOT_KEY]);
+      setSavedSignature(EMPTY_SIGNATURE);
+      const draft = readDraft('new');
+      setRecoverable(draft && draft.signature !== EMPTY_SIGNATURE ? draft : null);
       return;
     }
     if (detail && detail.id === selectedId) {
@@ -348,24 +723,72 @@ export function DirectoryTemplatesPage() {
       setDescription(detail.description ?? '');
       setIsDefault(detail.isDefault);
       setTree(editTree);
+      setRootChecklist((detail.checklist ?? []).map((c) => ({ ...c })));
       setSelectedNodeKey(null);
-      setExpandedKeys(collectKeys(editTree));
+      setExpandedKeys([ROOT_KEY, ...collectKeys(editTree)]);
+      const sig = serverSignature(detail);
+      setSavedSignature(sig);
+      const draft = readDraft(detail.id);
+      if (draft && draft.signature !== sig) {
+        setRecoverable(draft);
+      } else {
+        setRecoverable(null);
+        if (draft) clearDraft(detail.id);
+      }
     }
   }, [detail, selectedId]);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['templates'] });
+
+  const buildPayload = (): TemplatePayload => ({
+    name: name.trim(),
+    description: description.trim() ? description.trim() : null,
+    isDefault,
+    nodes: toInput(tree),
+    checklist: cleanChecklist(rootChecklist),
+  });
+  const currentSignature = JSON.stringify(buildPayload());
+  const dirty = currentSignature !== savedSignature;
+  const validationError = (): 'name' | 'folder' | null => {
+    if (!name.trim()) return 'name';
+    if (collectKeys(tree).some((k) => !findNode(tree, k)!.name.trim())) return 'folder';
+    return null;
+  };
 
   const save = useMutation({
     mutationFn: (payload: TemplatePayload) =>
       selectedId === 'new'
         ? createTemplate(payload)
         : updateTemplate(selectedId as number, payload),
-    onSuccess: (saved) => {
+    onSuccess: (saved, payload) => {
+      const prevId = selectedIdRef.current;
+      clearDraft(prevId);
+      clearDraft(saved.id);
       message.success('Template saved');
-      invalidate();
-      setSelectedId(saved.id);
+      if (prevId === 'new') {
+        invalidate();
+        setSelectedId(saved.id);
+      } else {
+        // Don't touch the detail cache: rewriting it re-fires the load effect and
+        // clears the current folder selection. Baseline the sent payload instead.
+        queryClient.invalidateQueries({ queryKey: ['templates'], exact: true });
+        setSavedSignature(JSON.stringify(payload));
+      }
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to save template')),
+  });
+
+  // Silent auto-save fired on natural editing boundaries (folder/template switch, window blur).
+  const autoCommit = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: TemplatePayload }) =>
+      updateTemplate(id, payload),
+    onSuccess: (_saved, { id, payload }) => {
+      clearDraft(id);
+      // Refresh only the left-hand list; leave the editor's selection/keys untouched.
+      queryClient.invalidateQueries({ queryKey: ['templates'], exact: true });
+      if (selectedIdRef.current === id) setSavedSignature(JSON.stringify(payload));
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Auto-save failed')),
   });
 
   const remove = useMutation({
@@ -444,18 +867,48 @@ export function DirectoryTemplatesPage() {
     if (payload) runUpdate.mutate({ id: selectedId, payload });
   };
 
-  const treeData = useMemo(() => toTreeData(tree), [tree]);
-  const selectedNode = selectedNodeKey ? findNode(tree, selectedNodeKey) : null;
-  const nodePath = selectedNodeKey ? findPath(tree, selectedNodeKey) : null;
+  const treeData = useMemo<DataNode[]>(
+    () => [
+      {
+        key: ROOT_KEY,
+        icon: <FolderOutlined />,
+        title: (
+          <span>
+            {name.trim() || 'Template root'}{' '}
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              (root)
+            </Typography.Text>
+          </span>
+        ),
+        children: toTreeData(tree),
+      },
+    ],
+    [tree, name],
+  );
+  const isRootSelected = selectedNodeKey === ROOT_KEY;
+  const selectedNode = selectedNodeKey && !isRootSelected ? findNode(tree, selectedNodeKey) : null;
+  const nodePath = selectedNode ? findPath(tree, selectedNode.key) : null;
   const missingPurposeCount = useMemo(() => countMissingPurpose(tree), [tree]);
+
+  const rootNode: EditNode = {
+    key: ROOT_KEY,
+    name: name.trim() || 'Template root',
+    description,
+    children: tree,
+    checklist: rootChecklist,
+  };
+  const patchRoot = (patch: Partial<EditNode>) => {
+    if (patch.description !== undefined) setDescription(patch.description ?? '');
+    if (patch.checklist !== undefined) setRootChecklist(patch.checklist);
+  };
 
   const patchNode = (key: string, patch: Partial<EditNode>) =>
     setTree((prev) => mapNode(prev, key, (n) => ({ ...n, ...patch })));
 
   const handleAddFolder = (parentKey: string | null) => {
-    const node: EditNode = { key: nextKey(), name: 'New folder', description: undefined, children: [] };
+    const node: EditNode = { key: nextKey(), name: 'New folder', description: undefined, children: [], checklist: [] };
     setTree((prev) => addChild(prev, parentKey, node));
-    if (parentKey) setExpandedKeys((k) => Array.from(new Set([...k, parentKey])));
+    setExpandedKeys((k) => Array.from(new Set([...k, parentKey ?? ROOT_KEY])));
     setSelectedNodeKey(node.key);
   };
 
@@ -478,8 +931,111 @@ export function DirectoryTemplatesPage() {
       description: description.trim() ? description.trim() : null,
       isDefault,
       nodes: toInput(tree),
+      checklist: cleanChecklist(rootChecklist),
     });
   };
+
+  // Commit the current draft to the server at natural boundaries, when valid and changed.
+  const commitRef = useRef<() => void>(() => {});
+  commitRef.current = () => {
+    if (!admin || typeof selectedId !== 'number' || !dirty) return;
+    if (autoCommit.isPending || save.isPending || validationError()) return;
+    autoCommit.mutate({ id: selectedId, payload: buildPayload() });
+  };
+
+  // Synchronously persist an unsaved draft to localStorage (used on tab close).
+  const flushDraftRef = useRef<() => void>(() => {});
+  flushDraftRef.current = () => {
+    if (!admin || selectedId == null || !dirty) return;
+    writeDraft(selectedId, { payload: buildPayload(), signature: currentSignature, ts: Date.now() });
+  };
+
+  useEffect(() => {
+    const onBlur = () => commitRef.current();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        flushDraftRef.current();
+        commitRef.current();
+      }
+    };
+    const onBeforeUnload = () => flushDraftRef.current();
+    window.addEventListener('blur', onBlur);
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, []);
+
+  // Keep a lightweight local draft so nothing is lost on an accidental refresh.
+  useEffect(() => {
+    if (!admin || selectedId == null) return;
+    if (!dirty) {
+      clearDraft(selectedId);
+      return;
+    }
+    const timer = setTimeout(() => {
+      writeDraft(selectedId, { payload: buildPayload(), signature: currentSignature, ts: Date.now() });
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSignature, dirty, selectedId, admin]);
+
+  const selectTemplate = (id: number | 'new') => {
+    commitRef.current();
+    setSelectedId(id);
+  };
+
+  const applyDraft = () => {
+    if (!recoverable) return;
+    const d = recoverable.payload;
+    setName(d.name);
+    setDescription(d.description ?? '');
+    setIsDefault(d.isDefault);
+    const editTree = inputToEditTree(d.nodes ?? []);
+    setTree(editTree);
+    setRootChecklist((d.checklist ?? []).map((c) => ({ ...c })));
+    setExpandedKeys([ROOT_KEY, ...collectKeys(editTree)]);
+    setSelectedNodeKey(null);
+    setRecoverable(null);
+  };
+
+  const discardDraft = () => {
+    if (selectedId != null) clearDraft(selectedId);
+    setRecoverable(null);
+  };
+
+  const statusTag = (() => {
+    if (autoCommit.isPending || save.isPending) {
+      return (
+        <Tag icon={<LoadingOutlined />} color="processing">
+          Saving…
+        </Tag>
+      );
+    }
+    if (!dirty) {
+      return (
+        <Tag icon={<CheckCircleOutlined />} color="success">
+          All changes saved
+        </Tag>
+      );
+    }
+    if (validationError()) {
+      return (
+        <Tag icon={<WarningOutlined />} color="warning">
+          Unsaved · complete required fields
+        </Tag>
+      );
+    }
+    return (
+      <Tag icon={<WarningOutlined />} color="gold">
+        Unsaved changes
+      </Tag>
+    );
+  })();
+
 
   const buildMarkdown = () => templateToMarkdown(name, description, tree);
 
@@ -529,7 +1085,7 @@ export function DirectoryTemplatesPage() {
                     size="small"
                     type="primary"
                     icon={<PlusOutlined />}
-                    onClick={() => setSelectedId('new')}
+                    onClick={() => selectTemplate('new')}
                   >
                     New
                   </Button>
@@ -545,7 +1101,7 @@ export function DirectoryTemplatesPage() {
               renderItem={(t) => (
                 <List.Item
                   style={{ cursor: 'pointer', background: t.id === selectedId ? 'rgba(22,119,255,0.08)' : undefined }}
-                  onClick={() => setSelectedId(t.id)}
+                  onClick={() => selectTemplate(t.id)}
                 >
                   <List.Item.Meta
                     title={
@@ -583,6 +1139,7 @@ export function DirectoryTemplatesPage() {
               title={selectedId === 'new' ? 'New template' : 'Edit template'}
               extra={
                 <Space>
+                  {admin && statusTag}
                   {selectedId !== 'new' && (
                     <Button icon={<FileTextOutlined />} onClick={() => setPreviewOpen(true)}>
                       Preview
@@ -631,6 +1188,24 @@ export function DirectoryTemplatesPage() {
               }
             >
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                {recoverable && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="Unsaved draft found"
+                    description={`A local draft from ${new Date(recoverable.ts).toLocaleString()} was never saved to the server.`}
+                    action={
+                      <Space>
+                        <Button size="small" type="primary" onClick={applyDraft}>
+                          Restore
+                        </Button>
+                        <Button size="small" onClick={discardDraft}>
+                          Discard
+                        </Button>
+                      </Space>
+                    }
+                  />
+                )}
                 <div>
                   <Typography.Text type="secondary">Name</Typography.Text>
                   <Input
@@ -639,17 +1214,7 @@ export function DirectoryTemplatesPage() {
                     maxLength={120}
                     placeholder="Template name"
                     onChange={(e) => setName(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Typography.Text type="secondary">Description</Typography.Text>
-                  <Input.TextArea
-                    value={description}
-                    disabled={!admin}
-                    maxLength={400}
-                    autoSize={{ minRows: 1, maxRows: 3 }}
-                    placeholder="What this template is for"
-                    onChange={(e) => setDescription(e.target.value)}
+                    onBlur={() => commitRef.current()}
                   />
                 </div>
                 <Space>
@@ -681,23 +1246,34 @@ export function DirectoryTemplatesPage() {
                       Add root folder
                     </Button>
                   )}
-                  {tree.length === 0 ? (
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No folders defined" />
-                  ) : (
-                    <Tree
-                      showIcon
-                      blockNode
-                      selectedKeys={selectedNodeKey ? [selectedNodeKey] : []}
-                      expandedKeys={expandedKeys}
-                      onExpand={(keys) => setExpandedKeys(keys as string[])}
-                      treeData={treeData}
-                      onSelect={(keys) => setSelectedNodeKey((keys[0] as string) ?? null)}
-                    />
-                  )}
+                  <Tree
+                    showIcon
+                    blockNode
+                    selectedKeys={selectedNodeKey ? [selectedNodeKey] : []}
+                    expandedKeys={expandedKeys}
+                    onExpand={(keys) => setExpandedKeys(keys as string[])}
+                    treeData={treeData}
+                    onSelect={(keys) => {
+                      setSelectedNodeKey((keys[0] as string) ?? null);
+                      commitRef.current();
+                    }}
+                  />
                 </Col>
 
                 <Col xs={24} md={11}>
-                  {selectedNode ? (
+                  {isRootSelected ? (
+                    <FolderDetails
+                      node={rootNode}
+                      admin={admin}
+                      isRoot
+                      path={null}
+                      onPatch={patchRoot}
+                      onAddSubfolder={() => handleAddFolder(null)}
+                      onMoveUp={() => {}}
+                      onMoveDown={() => {}}
+                      onDelete={() => {}}
+                    />
+                  ) : selectedNode ? (
                     <FolderDetails
                       node={selectedNode}
                       admin={admin}
@@ -711,7 +1287,7 @@ export function DirectoryTemplatesPage() {
                   ) : (
                     <Empty
                       image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      description="Select a folder to edit its name and purpose"
+                      description="Select the root or a folder to edit its purpose and checklist"
                     />
                   )}
                 </Col>

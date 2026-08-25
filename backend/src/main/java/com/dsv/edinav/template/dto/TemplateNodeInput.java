@@ -9,5 +9,6 @@ import java.util.List;
 public record TemplateNodeInput(
         @NotBlank @Size(max = 200) String name,
         @Size(max = 400) String description,
-        List<TemplateNodeInput> children
+        List<TemplateNodeInput> children,
+        List<ChecklistItemInput> checklist
 ) {}

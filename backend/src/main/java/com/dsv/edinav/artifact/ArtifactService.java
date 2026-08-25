@@ -1,15 +1,22 @@
 package com.dsv.edinav.artifact;
 
+import com.dsv.edinav.artifact.dto.ArtifactChecklistItemDto;
 import com.dsv.edinav.artifact.dto.ArtifactDetailDto;
 import com.dsv.edinav.artifact.dto.ArtifactLogDto;
 import com.dsv.edinav.artifact.dto.ArtifactNodeDto;
 import com.dsv.edinav.artifact.dto.ArtifactSummaryDto;
+import com.dsv.edinav.artifact.dto.ChecklistFolderDto;
+import com.dsv.edinav.artifact.dto.ChecklistSummaryDto;
+import com.dsv.edinav.artifact.dto.ChecklistViewDto;
 import com.dsv.edinav.artifact.dto.CreateArtifactRequest;
+import com.dsv.edinav.artifact.dto.CreateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.CreateFolderRequest;
 import com.dsv.edinav.artifact.dto.LogRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
+import com.dsv.edinav.artifact.dto.UpdateChecklistItemRequest;
 import com.dsv.edinav.common.ApiException;
 import com.dsv.edinav.storage.FileStorageService;
+import com.dsv.edinav.template.DirTemplateChecklistItem;
 import com.dsv.edinav.template.DirTemplateNode;
 import com.dsv.edinav.template.TemplateService;
 import com.dsv.edinav.user.User;
@@ -39,6 +46,7 @@ public class ArtifactService {
 
     private final ArtifactRepository artifactRepository;
     private final ArtifactNodeRepository nodeRepository;
+    private final ArtifactChecklistItemRepository checklistRepository;
     private final StatusHistoryRepository historyRepository;
     private final ArtifactLogRepository logRepository;
     private final TemplateService templateService;
@@ -49,6 +57,7 @@ public class ArtifactService {
 
     public ArtifactService(ArtifactRepository artifactRepository,
                            ArtifactNodeRepository nodeRepository,
+                           ArtifactChecklistItemRepository checklistRepository,
                            StatusHistoryRepository historyRepository,
                            ArtifactLogRepository logRepository,
                            TemplateService templateService,
@@ -58,6 +67,7 @@ public class ArtifactService {
                            UserRepository userRepository) {
         this.artifactRepository = artifactRepository;
         this.nodeRepository = nodeRepository;
+        this.checklistRepository = checklistRepository;
         this.historyRepository = historyRepository;
         this.logRepository = logRepository;
         this.templateService = templateService;
@@ -107,6 +117,7 @@ public class ArtifactService {
         requireOwned(ownerId, id);
         historyRepository.deleteByArtifactId(id);
         logRepository.deleteByArtifactId(id);
+        checklistRepository.deleteByArtifactId(id);
         nodeRepository.deleteByArtifactId(id);
         artifactRepository.deleteById(id);
         storage.deleteArtifactDirectory(id);
@@ -249,6 +260,7 @@ public class ArtifactService {
         collectSubtree(node, byParent, toDelete);
         toDelete.stream().filter(n -> !n.isFolder()).forEach(n -> storage.delete(n.getStoredPath()));
         nodeRepository.deleteAll(toDelete);
+        cleanupChecklistForDeletedNodes(artifactId, toDelete);
         touch(artifact);
     }
 
@@ -294,6 +306,189 @@ public class ArtifactService {
         nodeRepository.save(node);
         touch(artifact);
         return getDetail(ownerId, artifactId);
+    }
+
+    // ---------------- Checklist ----------------
+
+    @Transactional(readOnly = true)
+    public ChecklistViewDto getChecklist(Long ownerId, Long artifactId) {
+        requireOwned(ownerId, artifactId);
+        return buildChecklistView(artifactId);
+    }
+
+    @Transactional
+    public ChecklistViewDto createChecklistItem(Long ownerId, Long artifactId, CreateChecklistItemRequest request) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        validateFolder(artifactId, request.folderNodeId());
+        if (request.label() == null || request.label().isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Label is required");
+        }
+        ArtifactChecklistItem item = new ArtifactChecklistItem();
+        item.setArtifactId(artifactId);
+        item.setFolderNodeId(request.folderNodeId());
+        item.setLabel(request.label().trim());
+        item.setDescription(blankToNull(request.description()));
+        item.setRequired(request.required());
+        item.setOrderIndex(checklistRepository.nextOrderIndex(artifactId, request.folderNodeId()));
+        checklistRepository.save(item);
+        touch(artifact);
+        return buildChecklistView(artifactId);
+    }
+
+    @Transactional
+    public ChecklistViewDto updateChecklistItem(Long ownerId, Long artifactId, Long itemId,
+                                                UpdateChecklistItemRequest request) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        ArtifactChecklistItem item = requireChecklistItem(artifactId, itemId);
+        if (request.label() == null || request.label().isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Label is required");
+        }
+        item.setLabel(request.label().trim());
+        item.setDescription(blankToNull(request.description()));
+        item.setRequired(request.required());
+        checklistRepository.save(item);
+        touch(artifact);
+        return buildChecklistView(artifactId);
+    }
+
+    @Transactional
+    public ChecklistViewDto assignChecklistItem(Long ownerId, Long artifactId, Long itemId, Long nodeId) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        ArtifactChecklistItem item = requireChecklistItem(artifactId, itemId);
+        if (nodeId == null) {
+            item.setSatisfiedByNodeId(null);
+        } else {
+            ArtifactNode file = requireNode(artifactId, nodeId);
+            if (file.isFolder()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Only a file can fulfil a checklist item");
+            }
+            if (!java.util.Objects.equals(file.getParentId(), item.getFolderNodeId())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "File must be in the checklist item's folder");
+            }
+            item.setSatisfiedByNodeId(nodeId);
+        }
+        checklistRepository.save(item);
+        touch(artifact);
+        return buildChecklistView(artifactId);
+    }
+
+    @Transactional
+    public ChecklistViewDto deleteChecklistItem(Long ownerId, Long artifactId, Long itemId) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        ArtifactChecklistItem item = requireChecklistItem(artifactId, itemId);
+        checklistRepository.delete(item);
+        touch(artifact);
+        return buildChecklistView(artifactId);
+    }
+
+    private ChecklistViewDto buildChecklistView(Long artifactId) {
+        List<ArtifactNode> nodes = nodeRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId);
+        Map<Long, ArtifactNode> byId = nodes.stream()
+                .collect(Collectors.toMap(ArtifactNode::getId, n -> n));
+        List<ArtifactChecklistItem> items = checklistRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId);
+        Map<Long, List<ArtifactChecklistItem>> byFolder = items.stream()
+                .collect(Collectors.groupingBy(i -> i.getFolderNodeId() == null ? 0L : i.getFolderNodeId()));
+
+        List<Long> folderKeys = new ArrayList<>(byFolder.keySet());
+        folderKeys.sort(Comparator.comparing(k -> k == 0L ? "" : nodePath(byId, k).toLowerCase()));
+
+        List<ChecklistFolderDto> folders = new ArrayList<>();
+        int mandTotal = 0, mandSat = 0, optTotal = 0, optSat = 0;
+        for (Long key : folderKeys) {
+            Long folderNodeId = key == 0L ? null : key;
+            ArtifactNode folderNode = folderNodeId == null ? null : byId.get(folderNodeId);
+            String folderName = folderNode == null ? "(Root)" : folderNode.getName();
+            String path = folderNode == null ? "" : nodePath(byId, folderNodeId);
+            List<ArtifactChecklistItemDto> itemDtos = new ArrayList<>();
+            int fMandTotal = 0, fMandSat = 0, fOptTotal = 0, fOptSat = 0;
+            for (ArtifactChecklistItem item : byFolder.get(key)) {
+                boolean satisfied = isSatisfied(item, byId);
+                Long satNode = satisfied ? item.getSatisfiedByNodeId() : null;
+                String satName = satNode != null && byId.containsKey(satNode) ? byId.get(satNode).getName() : null;
+                itemDtos.add(new ArtifactChecklistItemDto(item.getId(), item.getFolderNodeId(), item.getLabel(),
+                        item.getDescription(), item.isRequired(), satisfied, satNode, satName));
+                if (item.isRequired()) {
+                    fMandTotal++;
+                    if (satisfied) fMandSat++;
+                } else {
+                    fOptTotal++;
+                    if (satisfied) fOptSat++;
+                }
+            }
+            mandTotal += fMandTotal;
+            mandSat += fMandSat;
+            optTotal += fOptTotal;
+            optSat += fOptSat;
+            folders.add(new ChecklistFolderDto(folderNodeId, folderName, path,
+                    fMandTotal, fMandSat, fOptTotal, fOptSat, itemDtos));
+        }
+        boolean complete = mandSat == mandTotal;
+        return new ChecklistViewDto(new ChecklistSummaryDto(mandTotal, mandSat, optTotal, optSat, complete), folders);
+    }
+
+    private boolean isSatisfied(ArtifactChecklistItem item, Map<Long, ArtifactNode> byId) {
+        Long nodeId = item.getSatisfiedByNodeId();
+        if (nodeId == null) {
+            return false;
+        }
+        ArtifactNode node = byId.get(nodeId);
+        return node != null && !node.isFolder();
+    }
+
+    private String nodePath(Map<Long, ArtifactNode> byId, Long nodeId) {
+        java.util.LinkedList<String> parts = new java.util.LinkedList<>();
+        ArtifactNode cur = byId.get(nodeId);
+        while (cur != null) {
+            parts.addFirst(cur.getName());
+            cur = cur.getParentId() == null ? null : byId.get(cur.getParentId());
+        }
+        return String.join("/", parts);
+    }
+
+    private void cleanupChecklistForDeletedNodes(Long artifactId, List<ArtifactNode> deleted) {
+        java.util.Set<Long> deletedIds = deleted.stream()
+                .map(ArtifactNode::getId)
+                .collect(Collectors.toSet());
+        List<ArtifactChecklistItem> items = checklistRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId);
+        List<ArtifactChecklistItem> toRemove = new ArrayList<>();
+        for (ArtifactChecklistItem item : items) {
+            if (item.getFolderNodeId() != null && deletedIds.contains(item.getFolderNodeId())) {
+                toRemove.add(item);
+            } else if (item.getSatisfiedByNodeId() != null && deletedIds.contains(item.getSatisfiedByNodeId())) {
+                item.setSatisfiedByNodeId(null);
+                checklistRepository.save(item);
+            }
+        }
+        if (!toRemove.isEmpty()) {
+            checklistRepository.deleteAll(toRemove);
+        }
+    }
+
+    private void validateFolder(Long artifactId, Long folderNodeId) {
+        if (folderNodeId == null) {
+            return;
+        }
+        ArtifactNode folder = requireNode(artifactId, folderNodeId);
+        if (!folder.isFolder()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Checklist can only attach to a folder");
+        }
+    }
+
+    private ArtifactChecklistItem requireChecklistItem(Long artifactId, Long itemId) {
+        ArtifactChecklistItem item = checklistRepository.findById(itemId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Checklist item not found"));
+        if (!item.getArtifactId().equals(artifactId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Checklist item does not belong to this artifact");
+        }
+        return item;
+    }
+
+    private String blankToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.strip();
+        return trimmed.isBlank() ? null : trimmed;
     }
 
     // ---------------- Export ----------------
@@ -379,11 +574,13 @@ public class ArtifactService {
         List<DirTemplateNode> templateNodes = templateService.getNodes(templateId);
         Map<Long, List<DirTemplateNode>> byParent = templateNodes.stream()
                 .collect(Collectors.groupingBy(n -> n.getParentId() == null ? 0L : n.getParentId()));
-        createTemplateChildren(artifactId, 0L, null, byParent);
+        Map<Long, Long> nodeIdMap = new java.util.HashMap<>();
+        createTemplateChildren(artifactId, 0L, null, byParent, nodeIdMap);
+        instantiateTemplateChecklist(artifactId, templateId, nodeIdMap);
     }
 
     private void createTemplateChildren(Long artifactId, Long templateParentKey, Long artifactParentId,
-                                        Map<Long, List<DirTemplateNode>> byParent) {
+                                        Map<Long, List<DirTemplateNode>> byParent, Map<Long, Long> nodeIdMap) {
         List<DirTemplateNode> children = byParent.getOrDefault(templateParentKey, List.of()).stream()
                 .sorted(Comparator.comparingInt(DirTemplateNode::getOrderIndex))
                 .toList();
@@ -396,7 +593,27 @@ public class ArtifactService {
             node.setFolder(true);
             node.setOrderIndex(order++);
             nodeRepository.save(node);
-            createTemplateChildren(artifactId, tn.getId(), node.getId(), byParent);
+            nodeIdMap.put(tn.getId(), node.getId());
+            createTemplateChildren(artifactId, tn.getId(), node.getId(), byParent, nodeIdMap);
+        }
+    }
+
+    private void instantiateTemplateChecklist(Long artifactId, Long templateId, Map<Long, Long> nodeIdMap) {
+        List<DirTemplateChecklistItem> templateItems = templateService.getChecklistItems(templateId);
+        int order = 0;
+        for (DirTemplateChecklistItem ti : templateItems) {
+            Long folderNodeId = ti.getTemplateNodeId() == null ? null : nodeIdMap.get(ti.getTemplateNodeId());
+            if (ti.getTemplateNodeId() != null && folderNodeId == null) {
+                continue;
+            }
+            ArtifactChecklistItem item = new ArtifactChecklistItem();
+            item.setArtifactId(artifactId);
+            item.setFolderNodeId(folderNodeId);
+            item.setLabel(ti.getLabel());
+            item.setDescription(ti.getDescription());
+            item.setRequired(ti.isRequired());
+            item.setOrderIndex(order++);
+            checklistRepository.save(item);
         }
     }
 

@@ -4,11 +4,15 @@ import com.dsv.edinav.artifact.dto.AdvanceRequest;
 import com.dsv.edinav.artifact.dto.ArtifactDetailDto;
 import com.dsv.edinav.artifact.dto.ArtifactNodeDto;
 import com.dsv.edinav.artifact.dto.ArtifactSummaryDto;
+import com.dsv.edinav.artifact.dto.AssignChecklistRequest;
+import com.dsv.edinav.artifact.dto.ChecklistViewDto;
 import com.dsv.edinav.artifact.dto.CreateArtifactRequest;
+import com.dsv.edinav.artifact.dto.CreateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.CreateFolderRequest;
 import com.dsv.edinav.artifact.dto.MoveNodeRequest;
 import com.dsv.edinav.artifact.dto.RenameNodeRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
+import com.dsv.edinav.artifact.dto.UpdateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.UpdateNotesRequest;
 import com.dsv.edinav.security.AppUserPrincipal;
 import jakarta.validation.Valid;
@@ -24,6 +28,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -153,5 +158,38 @@ public class ArtifactController {
     public List<StatusHistoryDto> history(@PathVariable Long id,
                                           @AuthenticationPrincipal AppUserPrincipal principal) {
         return artifactService.getHistory(principal.getId(), id);
+    }
+
+    @GetMapping("/{id}/checklist")
+    public ChecklistViewDto checklist(@PathVariable Long id,
+                                      @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.getChecklist(principal.getId(), id);
+    }
+
+    @PostMapping("/{id}/checklist")
+    public ChecklistViewDto createChecklistItem(@PathVariable Long id,
+                                                @Valid @RequestBody CreateChecklistItemRequest request,
+                                                @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.createChecklistItem(principal.getId(), id, request);
+    }
+
+    @PatchMapping("/{id}/checklist/{itemId}")
+    public ChecklistViewDto updateChecklistItem(@PathVariable Long id, @PathVariable Long itemId,
+                                                @Valid @RequestBody UpdateChecklistItemRequest request,
+                                                @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.updateChecklistItem(principal.getId(), id, itemId, request);
+    }
+
+    @PutMapping("/{id}/checklist/{itemId}/assignment")
+    public ChecklistViewDto assignChecklistItem(@PathVariable Long id, @PathVariable Long itemId,
+                                                @RequestBody AssignChecklistRequest request,
+                                                @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.assignChecklistItem(principal.getId(), id, itemId, request.nodeId());
+    }
+
+    @DeleteMapping("/{id}/checklist/{itemId}")
+    public ChecklistViewDto deleteChecklistItem(@PathVariable Long id, @PathVariable Long itemId,
+                                                @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.deleteChecklistItem(principal.getId(), id, itemId);
     }
 }
