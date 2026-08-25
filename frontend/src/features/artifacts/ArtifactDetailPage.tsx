@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
+import type { Key } from 'react';
 import {
   App as AntApp,
+  Breadcrumb,
   Button,
   Card,
   Col,
-  Descriptions,
+  Dropdown,
   Empty,
   Form,
   Input,
@@ -13,23 +15,30 @@ import {
   Row,
   Space,
   Spin,
+  Switch,
+  Table,
+  Tabs,
   Tag,
   Timeline,
   Tree,
   Typography,
   Upload,
 } from 'antd';
-import type { UploadProps } from 'antd';
-import type { DataNode } from 'antd/es/tree';
+import type { MenuProps, UploadProps } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import type { DataNode, TreeProps } from 'antd/es/tree';
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  EditOutlined,
   FileOutlined,
   FolderAddOutlined,
+  FolderOpenOutlined,
   FolderOutlined,
   HomeOutlined,
   InboxOutlined,
+  SearchOutlined,
   SwapOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
@@ -45,6 +54,8 @@ import {
   exportArtifact,
   fetchArtifact,
   fetchHistory,
+  moveNode,
+  renameNode,
   uploadFiles,
   type ArtifactNode,
 } from '../../api/artifacts';
@@ -80,6 +91,62 @@ function findNode(nodes: ArtifactNode[], id: number): ArtifactNode | null {
   return null;
 }
 
+// Flat lookup of every node by id (built once per artifact tree).
+function buildIndex(nodes: ArtifactNode[]): Map<number, ArtifactNode> {
+  const byId = new Map<number, ArtifactNode>();
+  const walk = (list: ArtifactNode[]) => {
+    for (const n of list) {
+      byId.set(n.id, n);
+      if (n.children?.length) walk(n.children);
+    }
+  };
+  walk(nodes);
+  return byId;
+}
+
+// Folder nodes from the root down to (but excluding) the given node.
+function ancestorFolders(byId: Map<number, ArtifactNode>, id: number): ArtifactNode[] {
+  const chain: ArtifactNode[] = [];
+  let cur = byId.get(id);
+  while (cur && cur.parentId != null) {
+    const parent = byId.get(cur.parentId);
+    if (!parent) break;
+    chain.unshift(parent);
+    cur = parent;
+  }
+  return chain;
+}
+
+interface FlatFile {
+  node: ArtifactNode;
+  relPath: string;
+}
+
+// Collect files under a folder (null = artifact root). When recursive, descend into subfolders.
+function collectFiles(
+  root: ArtifactNode[],
+  byId: Map<number, ArtifactNode>,
+  folderId: number | null,
+  recursive: boolean,
+): FlatFile[] {
+  const start = folderId == null ? root : byId.get(folderId)?.children ?? [];
+  const out: FlatFile[] = [];
+  const baseDepth = folderId == null ? 0 : ancestorFolders(byId, folderId).length + 1;
+  const walk = (list: ArtifactNode[]) => {
+    for (const n of list) {
+      if (n.folder) {
+        if (recursive) walk(n.children ?? []);
+      } else {
+        const rel = ancestorFolders(byId, n.id).slice(baseDepth).map((f) => f.name).join('/');
+        out.push({ node: n, relPath: rel });
+      }
+    }
+  };
+  walk(start);
+  return out;
+}
+
+
 export function ArtifactDetailPage() {
   const { id } = useParams();
   const artifactId = Number(id);
@@ -91,6 +158,14 @@ export function ArtifactDetailPage() {
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [folderForm] = Form.useForm<{ name: string }>();
   const [folderOpen, setFolderOpen] = useState(false);
+  const [folderParentId, setFolderParentId] = useState<number | null>(null);
+  const [renameForm] = Form.useForm<{ name: string }>();
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameNodeId, setRenameNodeId] = useState<number | null>(null);
+  const [menuNode, setMenuNode] = useState<ArtifactNode | null>(null);
+  const [expandedKeys, setExpandedKeys] = useState<Key[]>([ROOT_KEY]);
+  const [fileFilter, setFileFilter] = useState('');
+  const [includeSubfolders, setIncludeSubfolders] = useState(true);
 
   const { data: artifact, isLoading } = useQuery({
     queryKey: ['artifacts', artifactId],
@@ -131,6 +206,28 @@ export function ArtifactDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['artifacts'] });
   };
 
+  const byId = useMemo(() => buildIndex(artifact?.nodes ?? []), [artifact]);
+
+  // Files shown in the right-hand list for the current target folder.
+  const flatFiles = useMemo<FlatFile[]>(
+    () => (artifact ? collectFiles(artifact.nodes, byId, targetFolderId, includeSubfolders) : []),
+    [artifact, byId, targetFolderId, includeSubfolders],
+  );
+  const filteredFiles = useMemo(() => {
+    const q = fileFilter.trim().toLowerCase();
+    if (!q) return flatFiles;
+    return flatFiles.filter(
+      (f) => f.node.name.toLowerCase().includes(q) || f.relPath.toLowerCase().includes(q),
+    );
+  }, [flatFiles, fileFilter]);
+
+  // Expand every ancestor folder of a node and select it, so a list click reveals it in the tree.
+  const revealInTree = (id: number) => {
+    const ancestorKeys = ancestorFolders(byId, id).map((f) => f.id);
+    setExpandedKeys((prev) => Array.from(new Set<Key>([...prev, ROOT_KEY, ...ancestorKeys])));
+    setSelectedId(id);
+  };
+
   const advance = useMutation({
     mutationFn: (values: { toStepId: number; comment?: string }) => advanceArtifact(artifactId, values),
     onSuccess: () => {
@@ -143,7 +240,7 @@ export function ArtifactDetailPage() {
   });
 
   const addFolder = useMutation({
-    mutationFn: (name: string) => createFolder(artifactId, { parentId: targetFolderId, name }),
+    mutationFn: (name: string) => createFolder(artifactId, { parentId: folderParentId, name }),
     onSuccess: () => {
       message.success('Folder created');
       setFolderOpen(false);
@@ -151,6 +248,28 @@ export function ArtifactDetailPage() {
       invalidate();
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to create folder')),
+  });
+
+  const renameNodeMutation = useMutation({
+    mutationFn: ({ nodeId, name }: { nodeId: number; name: string }) => renameNode(artifactId, nodeId, name),
+    onSuccess: () => {
+      message.success('Renamed');
+      setRenameOpen(false);
+      setRenameNodeId(null);
+      renameForm.resetFields();
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to rename')),
+  });
+
+  const moveNodeMutation = useMutation({
+    mutationFn: ({ nodeId, parentId }: { nodeId: number; parentId: number | null }) =>
+      moveNode(artifactId, nodeId, parentId),
+    onSuccess: () => {
+      message.success('Moved');
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to move')),
   });
 
   const removeNode = useMutation({
@@ -204,12 +323,310 @@ export function ArtifactDetailPage() {
     }
   };
 
+  const openRename = (node: ArtifactNode) => {
+    setRenameNodeId(node.id);
+    renameForm.setFieldsValue({ name: node.name });
+    setRenameOpen(true);
+  };
+
+  const openNewFolder = (parentId: number | null) => {
+    setFolderParentId(parentId);
+    setFolderOpen(true);
+  };
+
+  const confirmDelete = (node: ArtifactNode) => {
+    Modal.confirm({
+      title: node.folder ? 'Delete folder and its contents?' : 'Delete this file?',
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      onOk: () => removeNode.mutateAsync(node.id),
+    });
+  };
+
+  const contextMenuItems: MenuProps['items'] = menuNode
+    ? menuNode.folder
+      ? [
+          { key: 'rename', icon: <EditOutlined />, label: 'Rename' },
+          { key: 'newFolder', icon: <FolderAddOutlined />, label: 'New subfolder' },
+          { type: 'divider' },
+          { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true },
+        ]
+      : [
+          { key: 'rename', icon: <EditOutlined />, label: 'Rename' },
+          { key: 'download', icon: <DownloadOutlined />, label: 'Download' },
+          { type: 'divider' },
+          { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true },
+        ]
+    : // Root node: only the top-level "new folder" action makes sense.
+      [{ key: 'newFolder', icon: <FolderAddOutlined />, label: 'New folder' }];
+
+  const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'newFolder') {
+      openNewFolder(menuNode ? menuNode.id : null);
+      return;
+    }
+    if (!menuNode) return;
+    if (key === 'rename') openRename(menuNode);
+    else if (key === 'download') handleDownload(menuNode);
+    else if (key === 'delete') confirmDelete(menuNode);
+  };
+
+  const handleDrop: TreeProps['onDrop'] = (info) => {
+    if (!artifact) return;
+    const dragKey = info.dragNode.key;
+    if (dragKey === ROOT_KEY) return;
+    const dropKey = info.node.key;
+    let targetParentId: number | null;
+    if (dropKey === ROOT_KEY) {
+      targetParentId = null;
+    } else {
+      const dropNode = findNode(artifact.nodes, Number(dropKey));
+      if (!dropNode) return;
+      // Dropped directly onto a folder → move inside it; otherwise use the drop target's parent.
+      targetParentId = !info.dropToGap && dropNode.folder ? dropNode.id : dropNode.parentId;
+    }
+    moveNodeMutation.mutate({ nodeId: Number(dragKey), parentId: targetParentId });
+  };
+
   if (isLoading) return <Spin />;
   if (!artifact) return <Empty description="Artifact not found" />;
 
   const targetFolderName = targetFolderId
     ? findNode(artifact.nodes, targetFolderId)?.name ?? 'root'
     : 'root (top level)';
+
+  const folderParentName = folderParentId
+    ? findNode(artifact.nodes, folderParentId)?.name ?? 'root'
+    : 'root (top level)';
+
+  // Breadcrumb from artifact root down to the currently selected node.
+  const crumbNodes = selectedNode ? [...ancestorFolders(byId, selectedNode.id), selectedNode] : [];
+  const breadcrumbItems = [
+    {
+      title: (
+        <a onClick={() => setSelectedId(null)}>
+          <HomeOutlined /> {artifact.name}
+        </a>
+      ),
+    },
+    ...crumbNodes.map((n) => ({
+      title: n.folder ? (
+        <a onClick={() => revealInTree(n.id)}>{n.name}</a>
+      ) : (
+        <span>{n.name}</span>
+      ),
+    })),
+  ];
+
+  const fileColumns: ColumnsType<FlatFile> = [
+    {
+      title: 'Name',
+      key: 'name',
+      render: (_, r) => (
+        <Space>
+          <FileOutlined />
+          <a onClick={() => revealInTree(r.node.id)}>{r.node.name}</a>
+        </Space>
+      ),
+      sorter: (a, b) => a.node.name.localeCompare(b.node.name),
+    },
+    {
+      title: 'Path',
+      dataIndex: 'relPath',
+      key: 'relPath',
+      render: (v: string) =>
+        v ? <Tag>{v}</Tag> : <Typography.Text type="secondary">· current folder</Typography.Text>,
+    },
+    {
+      title: 'Size',
+      key: 'size',
+      width: 110,
+      align: 'right',
+      render: (_, r) => formatBytes(r.node.sizeBytes),
+      sorter: (a, b) => a.node.sizeBytes - b.node.sizeBytes,
+    },
+    {
+      title: 'Type',
+      key: 'type',
+      width: 150,
+      ellipsis: true,
+      render: (_, r) => r.node.contentType || '—',
+    },
+    {
+      title: '',
+      key: 'actions',
+      width: 120,
+      render: (_, r) => (
+        <Space size="small">
+          <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(r.node)} />
+          <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openRename(r.node)} />
+          <Popconfirm title="Delete this file?" onConfirm={() => removeNode.mutate(r.node.id)}>
+            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  const filesTab = (
+    <div>
+      <Breadcrumb items={breadcrumbItems} style={{ marginBottom: 12 }} />
+      <Row gutter={16}>
+        <Col xs={24} lg={9}>
+          <Card
+            size="small"
+            title="Folders"
+            extra={
+              <Button size="small" icon={<FolderAddOutlined />} onClick={() => openNewFolder(targetFolderId)}>
+                New folder
+              </Button>
+            }
+          >
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              Right-click a node for actions · drag to move
+            </Typography.Text>
+            <Dropdown menu={{ items: contextMenuItems, onClick: handleMenuClick }} trigger={['contextMenu']}>
+              <div style={{ maxHeight: 480, overflow: 'auto', marginTop: 8 }}>
+                <Tree
+                  showIcon
+                  showLine
+                  blockNode
+                  draggable={{ icon: false, nodeDraggable: (node) => node.key !== ROOT_KEY }}
+                  treeData={treeData}
+                  expandedKeys={expandedKeys}
+                  onExpand={(keys) => setExpandedKeys(keys)}
+                  selectedKeys={[selectedId ?? ROOT_KEY]}
+                  onSelect={(keys) => {
+                    const key = keys[0];
+                    setSelectedId(key == null || key === ROOT_KEY ? null : Number(key));
+                  }}
+                  onRightClick={({ node }) => {
+                    const key = node.key;
+                    setMenuNode(key === ROOT_KEY ? null : findNode(artifact.nodes, Number(key)));
+                  }}
+                  onDrop={handleDrop}
+                />
+              </div>
+            </Dropdown>
+
+            <Upload.Dragger {...uploadProps} style={{ marginTop: 16 }}>
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <p className="ant-upload-text">Drag files here to upload into “{targetFolderName}”</p>
+            </Upload.Dragger>
+          </Card>
+        </Col>
+
+        <Col xs={24} lg={15}>
+          <Card
+            size="small"
+            title={
+              <Space size={4}>
+                <FolderOpenOutlined />
+                <span>Files in “{targetFolderName}”</span>
+              </Space>
+            }
+            extra={
+              <Upload {...uploadProps}>
+                <Button size="small" type="primary" icon={<UploadOutlined />}>
+                  Upload
+                </Button>
+              </Upload>
+            }
+          >
+            <Space style={{ marginBottom: 12 }} wrap>
+              <Input
+                allowClear
+                prefix={<SearchOutlined />}
+                placeholder="Filter by name or path"
+                value={fileFilter}
+                onChange={(e) => setFileFilter(e.target.value)}
+                style={{ width: 260 }}
+              />
+              <Space size={4}>
+                <Switch size="small" checked={includeSubfolders} onChange={setIncludeSubfolders} />
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  Include subfolders
+                </Typography.Text>
+              </Space>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {filteredFiles.length} file{filteredFiles.length === 1 ? '' : 's'}
+              </Typography.Text>
+            </Space>
+            <Table<FlatFile>
+              size="small"
+              rowKey={(r) => r.node.id}
+              columns={fileColumns}
+              dataSource={filteredFiles}
+              pagination={{ pageSize: 20, hideOnSinglePage: true, size: 'small' }}
+              locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No files" /> }}
+              onRow={(r) => ({ onClick: () => revealInTree(r.node.id) })}
+              rowClassName={(r) => (r.node.id === selectedId ? 'ant-table-row-selected' : '')}
+            />
+          </Card>
+        </Col>
+      </Row>
+    </div>
+  );
+
+  const workflowTab = (
+    <Row gutter={16}>
+      <Col xs={24} lg={12}>
+        <Card
+          title="Workflow status"
+          extra={
+            <Button size="small" icon={<SwapOutlined />} onClick={() => setAdvanceOpen(true)}>
+              Update status
+            </Button>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          <Space direction="vertical">
+            <div>
+              Current step:{' '}
+              {artifact.currentStepName ? (
+                <Tag color="blue">{artifact.currentStepName}</Tag>
+              ) : (
+                <Tag>Not started</Tag>
+              )}
+            </div>
+            <Typography.Text type="secondary">
+              Created {dayjs(artifact.createdAt).format('YYYY-MM-DD HH:mm')} · Updated{' '}
+              {dayjs(artifact.updatedAt).format('YYYY-MM-DD HH:mm')}
+            </Typography.Text>
+          </Space>
+        </Card>
+
+        <Card title="Status history">
+          {history.length === 0 ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No status changes yet" />
+          ) : (
+            <Timeline
+              items={history.map((h) => ({
+                children: (
+                  <Space direction="vertical" size={0}>
+                    <span>
+                      {h.fromStepName ? `${h.fromStepName} → ` : 'Set to '}
+                      <b>{h.toStepName}</b>
+                    </span>
+                    {h.comment && <Typography.Text type="secondary">{h.comment}</Typography.Text>}
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {h.changedByName} · {dayjs(h.changedAt).format('YYYY-MM-DD HH:mm')}
+                    </Typography.Text>
+                  </Space>
+                ),
+              }))}
+            />
+          )}
+        </Card>
+      </Col>
+
+      <Col xs={24} lg={12}>
+        <LogsPanel artifactId={artifactId} exportTitle={artifact.ediRef || artifact.name} />
+      </Col>
+    </Row>
+  );
 
   return (
     <div>
@@ -238,131 +655,13 @@ export function ArtifactDetailPage() {
         </Space>
       </Row>
 
-      <Row gutter={16}>
-        <Col xs={24} lg={14}>
-          <Card
-            title="Files"
-            extra={
-              <Space>
-                <Button size="small" icon={<FolderAddOutlined />} onClick={() => setFolderOpen(true)}>
-                  New folder
-                </Button>
-                <Upload {...uploadProps}>
-                  <Button size="small" type="primary" icon={<UploadOutlined />}>
-                    Upload
-                  </Button>
-                </Upload>
-              </Space>
-            }
-          >
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              Target folder: <b>{targetFolderName}</b> (select a folder to change)
-            </Typography.Text>
-            <Tree
-              showIcon
-              showLine
-              blockNode
-              treeData={treeData}
-              defaultExpandedKeys={[ROOT_KEY]}
-              selectedKeys={[selectedId ?? ROOT_KEY]}
-              onSelect={(keys) => {
-                const key = keys[0];
-                setSelectedId(key == null || key === ROOT_KEY ? null : Number(key));
-              }}
-              style={{ marginTop: 12 }}
-            />
-
-            <Upload.Dragger {...uploadProps} style={{ marginTop: 16 }}>
-              <p className="ant-upload-drag-icon">
-                <InboxOutlined />
-              </p>
-              <p className="ant-upload-text">Drag files here to upload into “{targetFolderName}”</p>
-            </Upload.Dragger>
-
-            {selectedNode && (
-              <Card size="small" style={{ marginTop: 16 }} title={selectedNode.name}>
-                <Descriptions size="small" column={1}>
-                  <Descriptions.Item label="Type">
-                    {selectedNode.folder ? 'Folder' : selectedNode.contentType || 'File'}
-                  </Descriptions.Item>
-                  {!selectedNode.folder && (
-                    <Descriptions.Item label="Size">{formatBytes(selectedNode.sizeBytes)}</Descriptions.Item>
-                  )}
-                </Descriptions>
-                <Space>
-                  {!selectedNode.folder && (
-                    <Button size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(selectedNode)}>
-                      Download
-                    </Button>
-                  )}
-                  <Popconfirm
-                    title={selectedNode.folder ? 'Delete folder and its contents?' : 'Delete this file?'}
-                    onConfirm={() => removeNode.mutate(selectedNode.id)}
-                  >
-                    <Button size="small" danger icon={<DeleteOutlined />}>
-                      Delete
-                    </Button>
-                  </Popconfirm>
-                </Space>
-              </Card>
-            )}
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={10}>
-          <Card
-            title="Workflow status"
-            extra={
-              <Button size="small" icon={<SwapOutlined />} onClick={() => setAdvanceOpen(true)}>
-                Update status
-              </Button>
-            }
-            style={{ marginBottom: 16 }}
-          >
-            <Space direction="vertical">
-              <div>
-                Current step:{' '}
-                {artifact.currentStepName ? (
-                  <Tag color="blue">{artifact.currentStepName}</Tag>
-                ) : (
-                  <Tag>Not started</Tag>
-                )}
-              </div>
-              <Typography.Text type="secondary">
-                Created {dayjs(artifact.createdAt).format('YYYY-MM-DD HH:mm')} · Updated{' '}
-                {dayjs(artifact.updatedAt).format('YYYY-MM-DD HH:mm')}
-              </Typography.Text>
-            </Space>
-          </Card>
-
-          <Card title="Status history">
-            {history.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No status changes yet" />
-            ) : (
-              <Timeline
-                items={history.map((h) => ({
-                  children: (
-                    <Space direction="vertical" size={0}>
-                      <span>
-                        {h.fromStepName ? `${h.fromStepName} → ` : 'Set to '}
-                        <b>{h.toStepName}</b>
-                      </span>
-                      {h.comment && <Typography.Text type="secondary">{h.comment}</Typography.Text>}
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        {h.changedByName} · {dayjs(h.changedAt).format('YYYY-MM-DD HH:mm')}
-                      </Typography.Text>
-                    </Space>
-                  ),
-                }))}
-              />
-            )}
-          </Card>
-
-          <div style={{ marginTop: 16 }}>
-            <LogsPanel artifactId={artifactId} exportTitle={artifact.ediRef || artifact.name} />
-          </div>
-        </Col>
-      </Row>
+      <Tabs
+        defaultActiveKey="files"
+        items={[
+          { key: 'files', label: 'Files', children: filesTab },
+          { key: 'workflow', label: 'Workflow & Logs', children: workflowTab },
+        ]}
+      />
 
       <AdvanceStatusModal
         open={advanceOpen}
@@ -374,7 +673,7 @@ export function ArtifactDetailPage() {
 
       <Modal
         open={folderOpen}
-        title={`New folder in “${targetFolderName}”`}
+        title={`New folder in “${folderParentName}”`}
         okText="Create"
         confirmLoading={addFolder.isPending}
         onCancel={() => setFolderOpen(false)}
@@ -384,6 +683,27 @@ export function ArtifactDetailPage() {
         <Form form={folderForm} layout="vertical" onFinish={(v) => addFolder.mutate(v.name)} requiredMark={false}>
           <Form.Item name="name" label="Folder name" rules={[{ required: true, message: 'Name is required' }]}>
             <Input placeholder="e.g. UAT" autoFocus />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        open={renameOpen}
+        title="Rename"
+        okText="Save"
+        confirmLoading={renameNodeMutation.isPending}
+        onCancel={() => setRenameOpen(false)}
+        onOk={() => renameForm.submit()}
+        destroyOnClose
+      >
+        <Form
+          form={renameForm}
+          layout="vertical"
+          onFinish={(v) => renameNodeId != null && renameNodeMutation.mutate({ nodeId: renameNodeId, name: v.name })}
+          requiredMark={false}
+        >
+          <Form.Item name="name" label="New name" rules={[{ required: true, message: 'Name is required' }]}>
+            <Input autoFocus />
           </Form.Item>
         </Form>
       </Modal>

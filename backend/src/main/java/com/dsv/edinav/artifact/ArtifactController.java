@@ -6,6 +6,8 @@ import com.dsv.edinav.artifact.dto.ArtifactNodeDto;
 import com.dsv.edinav.artifact.dto.ArtifactSummaryDto;
 import com.dsv.edinav.artifact.dto.CreateArtifactRequest;
 import com.dsv.edinav.artifact.dto.CreateFolderRequest;
+import com.dsv.edinav.artifact.dto.MoveNodeRequest;
+import com.dsv.edinav.artifact.dto.RenameNodeRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
 import com.dsv.edinav.security.AppUserPrincipal;
 import jakarta.validation.Valid;
@@ -18,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -102,6 +105,20 @@ public class ArtifactController {
     public void deleteNode(@PathVariable Long id, @PathVariable Long nodeId,
                            @AuthenticationPrincipal AppUserPrincipal principal) {
         artifactService.deleteNode(principal.getId(), id, nodeId);
+    }
+
+    @PatchMapping("/{id}/nodes/{nodeId}/rename")
+    public ArtifactDetailDto renameNode(@PathVariable Long id, @PathVariable Long nodeId,
+                                        @Valid @RequestBody RenameNodeRequest request,
+                                        @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.renameNode(principal.getId(), id, nodeId, request.name());
+    }
+
+    @PatchMapping("/{id}/nodes/{nodeId}/move")
+    public ArtifactDetailDto moveNode(@PathVariable Long id, @PathVariable Long nodeId,
+                                      @RequestBody MoveNodeRequest request,
+                                      @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.moveNode(principal.getId(), id, nodeId, request.parentId());
     }
 
     @GetMapping("/{id}/export")

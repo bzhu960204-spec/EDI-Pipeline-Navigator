@@ -98,6 +98,24 @@ export async function deleteNode(artifactId: number, nodeId: number): Promise<vo
   await api.delete(`/artifacts/${artifactId}/nodes/${nodeId}`);
 }
 
+export async function renameNode(
+  artifactId: number,
+  nodeId: number,
+  name: string,
+): Promise<ArtifactDetail> {
+  const { data } = await api.patch<ArtifactDetail>(`/artifacts/${artifactId}/nodes/${nodeId}/rename`, { name });
+  return data;
+}
+
+export async function moveNode(
+  artifactId: number,
+  nodeId: number,
+  parentId: number | null,
+): Promise<ArtifactDetail> {
+  const { data } = await api.patch<ArtifactDetail>(`/artifacts/${artifactId}/nodes/${nodeId}/move`, { parentId });
+  return data;
+}
+
 export async function advanceArtifact(
   artifactId: number,
   payload: { toStepId: number; comment?: string },

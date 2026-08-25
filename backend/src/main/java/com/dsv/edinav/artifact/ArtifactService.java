@@ -252,6 +252,39 @@ public class ArtifactService {
         touch(artifact);
     }
 
+    @Transactional
+    public ArtifactDetailDto renameNode(Long ownerId, Long artifactId, Long nodeId, String rawName) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        ArtifactNode node = requireNode(artifactId, nodeId);
+        String desired = cleanNodeName(rawName);
+        if (desired.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Name is required");
+        }
+        node.setName(uniqueName(artifactId, node.getParentId(), desired, node.getId()));
+        nodeRepository.save(node);
+        touch(artifact);
+        return getDetail(ownerId, artifactId);
+    }
+
+    @Transactional
+    public ArtifactDetailDto moveNode(Long ownerId, Long artifactId, Long nodeId, Long targetParentId) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        ArtifactNode node = requireNode(artifactId, nodeId);
+        validateParent(artifactId, targetParentId);
+        if (java.util.Objects.equals(node.getParentId(), targetParentId)) {
+            return getDetail(ownerId, artifactId);
+        }
+        if (node.isFolder() && isDescendantOrSelf(targetParentId, node.getId())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Cannot move a folder into itself or one of its subfolders");
+        }
+        node.setParentId(targetParentId);
+        node.setName(uniqueName(artifactId, targetParentId, node.getName(), node.getId()));
+        node.setOrderIndex(nodeRepository.nextOrderIndex(artifactId, targetParentId));
+        nodeRepository.save(node);
+        touch(artifact);
+        return getDetail(ownerId, artifactId);
+    }
+
     // ---------------- Export ----------------
 
     @Transactional(readOnly = true)
@@ -445,5 +478,53 @@ public class ArtifactService {
         String name = original.replace('\\', '/');
         int slash = name.lastIndexOf('/');
         return slash >= 0 ? name.substring(slash + 1) : name;
+    }
+
+    /** Strips path separators and trims a user-supplied node name. */
+    private String cleanNodeName(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String name = raw.trim().replaceAll("[\\\\/]", "_");
+        return name.length() > 260 ? name.substring(0, 260) : name;
+    }
+
+    /** Returns true if {@code candidateParentId} is the folder itself or nested under it. */
+    private boolean isDescendantOrSelf(Long candidateParentId, Long folderId) {
+        Long cur = candidateParentId;
+        while (cur != null) {
+            if (cur.equals(folderId)) {
+                return true;
+            }
+            ArtifactNode n = nodeRepository.findById(cur).orElse(null);
+            cur = n == null ? null : n.getParentId();
+        }
+        return false;
+    }
+
+    /** Ensures the name is unique within its parent folder, appending " (n)" before the extension if needed. */
+    private String uniqueName(Long artifactId, Long parentId, String desired, Long excludeNodeId) {
+        java.util.Set<String> taken = nodeRepository.findByParentIdOrderByOrderIndexAsc(parentId).stream()
+                .filter(n -> artifactId.equals(n.getArtifactId()))
+                .filter(n -> !n.getId().equals(excludeNodeId))
+                .map(n -> n.getName().toLowerCase())
+                .collect(Collectors.toSet());
+        if (!taken.contains(desired.toLowerCase())) {
+            return desired;
+        }
+        String base = desired;
+        String ext = "";
+        int dot = desired.lastIndexOf('.');
+        if (dot > 0) {
+            base = desired.substring(0, dot);
+            ext = desired.substring(dot);
+        }
+        int i = 1;
+        String candidate;
+        do {
+            candidate = base + " (" + i + ")" + ext;
+            i++;
+        } while (taken.contains(candidate.toLowerCase()));
+        return candidate;
     }
 }
