@@ -9,6 +9,7 @@ import com.dsv.edinav.artifact.dto.CreateFolderRequest;
 import com.dsv.edinav.artifact.dto.MoveNodeRequest;
 import com.dsv.edinav.artifact.dto.RenameNodeRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
+import com.dsv.edinav.artifact.dto.UpdateNotesRequest;
 import com.dsv.edinav.security.AppUserPrincipal;
 import jakarta.validation.Valid;
 import org.springframework.core.io.InputStreamResource;
@@ -112,6 +113,13 @@ public class ArtifactController {
                                         @Valid @RequestBody RenameNodeRequest request,
                                         @AuthenticationPrincipal AppUserPrincipal principal) {
         return artifactService.renameNode(principal.getId(), id, nodeId, request.name());
+    }
+
+    @PatchMapping("/{id}/nodes/{nodeId}/notes")
+    public ArtifactDetailDto updateNotes(@PathVariable Long id, @PathVariable Long nodeId,
+                                         @Valid @RequestBody UpdateNotesRequest request,
+                                         @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.updateNotes(principal.getId(), id, nodeId, request.notes());
     }
 
     @PatchMapping("/{id}/nodes/{nodeId}/move")

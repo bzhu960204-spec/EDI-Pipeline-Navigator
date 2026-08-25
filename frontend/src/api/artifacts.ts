@@ -19,6 +19,7 @@ export interface ArtifactNode {
   folder: boolean;
   sizeBytes: number;
   contentType?: string | null;
+  notes?: string | null;
   createdAt: string;
   children: ArtifactNode[];
 }
@@ -104,6 +105,15 @@ export async function renameNode(
   name: string,
 ): Promise<ArtifactDetail> {
   const { data } = await api.patch<ArtifactDetail>(`/artifacts/${artifactId}/nodes/${nodeId}/rename`, { name });
+  return data;
+}
+
+export async function updateNodeNotes(
+  artifactId: number,
+  nodeId: number,
+  notes: string,
+): Promise<ArtifactDetail> {
+  const { data } = await api.patch<ArtifactDetail>(`/artifacts/${artifactId}/nodes/${nodeId}/notes`, { notes });
   return data;
 }
 

@@ -20,6 +20,7 @@ import {
   Tabs,
   Tag,
   Timeline,
+  Tooltip,
   Tree,
   Typography,
   Upload,
@@ -33,6 +34,7 @@ import {
   DownloadOutlined,
   EditOutlined,
   FileOutlined,
+  FileTextOutlined,
   FolderAddOutlined,
   FolderOpenOutlined,
   FolderOutlined,
@@ -56,6 +58,7 @@ import {
   fetchHistory,
   moveNode,
   renameNode,
+  updateNodeNotes,
   uploadFiles,
   type ArtifactNode,
 } from '../../api/artifacts';
@@ -162,6 +165,9 @@ export function ArtifactDetailPage() {
   const [renameForm] = Form.useForm<{ name: string }>();
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameNodeId, setRenameNodeId] = useState<number | null>(null);
+  const [notesForm] = Form.useForm<{ notes: string }>();
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesNode, setNotesNode] = useState<ArtifactNode | null>(null);
   const [menuNode, setMenuNode] = useState<ArtifactNode | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Key[]>([ROOT_KEY]);
   const [fileFilter, setFileFilter] = useState('');
@@ -262,6 +268,19 @@ export function ArtifactDetailPage() {
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to rename')),
   });
 
+  const notesMutation = useMutation({
+    mutationFn: ({ nodeId, notes }: { nodeId: number; notes: string }) =>
+      updateNodeNotes(artifactId, nodeId, notes),
+    onSuccess: () => {
+      message.success('Notes saved');
+      setNotesOpen(false);
+      setNotesNode(null);
+      notesForm.resetFields();
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to save notes')),
+  });
+
   const moveNodeMutation = useMutation({
     mutationFn: ({ nodeId, parentId }: { nodeId: number; parentId: number | null }) =>
       moveNode(artifactId, nodeId, parentId),
@@ -329,6 +348,12 @@ export function ArtifactDetailPage() {
     setRenameOpen(true);
   };
 
+  const openNotes = (node: ArtifactNode) => {
+    setNotesNode(node);
+    notesForm.setFieldsValue({ notes: node.notes ?? '' });
+    setNotesOpen(true);
+  };
+
   const openNewFolder = (parentId: number | null) => {
     setFolderParentId(parentId);
     setFolderOpen(true);
@@ -347,12 +372,14 @@ export function ArtifactDetailPage() {
     ? menuNode.folder
       ? [
           { key: 'rename', icon: <EditOutlined />, label: 'Rename' },
+          { key: 'notes', icon: <FileTextOutlined />, label: 'Notes' },
           { key: 'newFolder', icon: <FolderAddOutlined />, label: 'New subfolder' },
           { type: 'divider' },
           { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true },
         ]
       : [
           { key: 'rename', icon: <EditOutlined />, label: 'Rename' },
+          { key: 'notes', icon: <FileTextOutlined />, label: 'Notes' },
           { key: 'download', icon: <DownloadOutlined />, label: 'Download' },
           { type: 'divider' },
           { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true },
@@ -367,6 +394,7 @@ export function ArtifactDetailPage() {
     }
     if (!menuNode) return;
     if (key === 'rename') openRename(menuNode);
+    else if (key === 'notes') openNotes(menuNode);
     else if (key === 'download') handleDownload(menuNode);
     else if (key === 'delete') confirmDelete(menuNode);
   };
@@ -422,10 +450,14 @@ export function ArtifactDetailPage() {
     {
       title: 'Name',
       key: 'name',
+      width: 200,
+      ellipsis: true,
       render: (_, r) => (
-        <Space>
+        <Space size={6} style={{ maxWidth: '100%' }}>
           <FileOutlined />
-          <a onClick={() => revealInTree(r.node.id)}>{r.node.name}</a>
+          <a onClick={() => revealInTree(r.node.id)} title={r.node.name} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {r.node.name}
+          </a>
         </Space>
       ),
       sorter: (a, b) => a.node.name.localeCompare(b.node.name),
@@ -434,32 +466,39 @@ export function ArtifactDetailPage() {
       title: 'Path',
       dataIndex: 'relPath',
       key: 'relPath',
+      width: 120,
+      ellipsis: true,
       render: (v: string) =>
-        v ? <Tag>{v}</Tag> : <Typography.Text type="secondary">· current folder</Typography.Text>,
+        v ? <Tag>{v}</Tag> : <Typography.Text type="secondary">current folder</Typography.Text>,
     },
     {
       title: 'Size',
       key: 'size',
-      width: 110,
+      width: 90,
       align: 'right',
       render: (_, r) => formatBytes(r.node.sizeBytes),
       sorter: (a, b) => a.node.sizeBytes - b.node.sizeBytes,
     },
     {
-      title: 'Type',
-      key: 'type',
-      width: 150,
-      ellipsis: true,
-      render: (_, r) => r.node.contentType || '—',
-    },
-    {
       title: '',
       key: 'actions',
-      width: 120,
+      width: 110,
       render: (_, r) => (
         <Space size="small">
-          <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(r.node)} />
-          <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openRename(r.node)} />
+          <Tooltip title="Download">
+            <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(r.node)} />
+          </Tooltip>
+          <Tooltip title="Notes">
+            <Button
+              type="text"
+              size="small"
+              icon={<FileTextOutlined style={r.node.notes ? { color: '#1677ff' } : undefined} />}
+              onClick={() => openNotes(r.node)}
+            />
+          </Tooltip>
+          <Tooltip title="Rename">
+            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openRename(r.node)} />
+          </Tooltip>
           <Popconfirm title="Delete this file?" onConfirm={() => removeNode.mutate(r.node.id)}>
             <Button type="text" size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
@@ -559,6 +598,7 @@ export function ArtifactDetailPage() {
               rowKey={(r) => r.node.id}
               columns={fileColumns}
               dataSource={filteredFiles}
+              scroll={{ x: 'max-content' }}
               pagination={{ pageSize: 20, hideOnSinglePage: true, size: 'small' }}
               locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No files" /> }}
               onRow={(r) => ({ onClick: () => revealInTree(r.node.id) })}
@@ -704,6 +744,37 @@ export function ArtifactDetailPage() {
         >
           <Form.Item name="name" label="New name" rules={[{ required: true, message: 'Name is required' }]}>
             <Input autoFocus />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        open={notesOpen}
+        title={notesNode ? `Notes · ${notesNode.name}` : 'Notes'}
+        okText="Save"
+        confirmLoading={notesMutation.isPending}
+        onCancel={() => setNotesOpen(false)}
+        onOk={() => notesForm.submit()}
+        destroyOnClose
+      >
+        <Form
+          form={notesForm}
+          layout="vertical"
+          onFinish={(v) => notesNode != null && notesMutation.mutate({ nodeId: notesNode.id, notes: v.notes ?? '' })}
+          requiredMark={false}
+        >
+          <Form.Item
+            name="notes"
+            label="Notes"
+            extra="Record what was changed, what still needs work, etc."
+          >
+            <Input.TextArea
+              autoFocus
+              rows={8}
+              maxLength={10000}
+              showCount
+              placeholder="e.g. Updated mapping for segment X. TODO: confirm date format."
+            />
           </Form.Item>
         </Form>
       </Modal>

@@ -10,6 +10,7 @@ public record ArtifactNodeDto(
         boolean folder,
         long sizeBytes,
         String contentType,
+        String notes,
         Instant createdAt,
         List<ArtifactNodeDto> children
 ) {}

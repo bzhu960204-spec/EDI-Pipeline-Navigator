@@ -267,6 +267,17 @@ public class ArtifactService {
     }
 
     @Transactional
+    public ArtifactDetailDto updateNotes(Long ownerId, Long artifactId, Long nodeId, String notes) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        ArtifactNode node = requireNode(artifactId, nodeId);
+        String trimmed = notes == null ? null : notes.strip();
+        node.setNotes(trimmed == null || trimmed.isBlank() ? null : trimmed);
+        nodeRepository.save(node);
+        touch(artifact);
+        return getDetail(ownerId, artifactId);
+    }
+
+    @Transactional
     public ArtifactDetailDto moveNode(Long ownerId, Long artifactId, Long nodeId, Long targetParentId) {
         Artifact artifact = requireOwned(ownerId, artifactId);
         ArtifactNode node = requireNode(artifactId, nodeId);
@@ -415,7 +426,7 @@ public class ArtifactService {
 
     private ArtifactNodeDto toNodeDto(ArtifactNode node, List<ArtifactNodeDto> children) {
         return new ArtifactNodeDto(node.getId(), node.getParentId(), node.getName(), node.isFolder(),
-                node.getSizeBytes(), node.getContentType(), node.getCreatedAt(), children);
+                node.getSizeBytes(), node.getContentType(), node.getNotes(), node.getCreatedAt(), children);
     }
 
     private ArtifactSummaryDto toSummary(Artifact a, Map<Long, String> stepNames) {

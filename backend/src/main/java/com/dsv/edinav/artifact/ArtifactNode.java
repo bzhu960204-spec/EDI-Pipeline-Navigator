@@ -41,6 +41,10 @@ public class ArtifactNode {
     @Column(length = 150)
     private String contentType;
 
+    /** Freeform user notes about this file/folder (e.g. what changed, what still needs work). */
+    @Column(columnDefinition = "TEXT")
+    private String notes;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -70,6 +74,9 @@ public class ArtifactNode {
 
     public String getContentType() { return contentType; }
     public void setContentType(String contentType) { this.contentType = contentType; }
+
+    public String getNotes() { return notes; }
+    public void setNotes(String notes) { this.notes = notes; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
