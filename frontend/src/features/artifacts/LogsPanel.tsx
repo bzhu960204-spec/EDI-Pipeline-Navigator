@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App as AntApp, Button, Card, Empty, Input, Modal, Popconfirm, Space, Spin, Typography } from 'antd';
+import { App as AntApp, Button, Card, Empty, Input, Modal, Popconfirm, Space, Spin, Typography, theme } from 'antd';
 import {
-  ArrowLeftOutlined,
+  ClockCircleOutlined,
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
@@ -34,6 +34,7 @@ interface LogsPanelProps {
 
 export function LogsPanel({ artifactId, exportTitle }: LogsPanelProps) {
   const { message } = AntApp.useApp();
+  const { token } = theme.useToken();
   const [view, setView] = useState<View>({ kind: 'list' });
   const [editing, setEditing] = useState<Editing>(null);
   const [showExport, setShowExport] = useState(false);
@@ -86,51 +87,77 @@ export function LogsPanel({ artifactId, exportTitle }: LogsPanelProps) {
     />
   );
 
-  if (view.kind === 'read') {
-    const { log } = view;
-    return (
-      <Card
-        title={
-          <Space>
-            <Button
-              type="text"
-              size="small"
-              icon={<ArrowLeftOutlined />}
-              onClick={() => setView({ kind: 'list' })}
-            />
-            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{log.title}</span>
+  const reading = view.kind === 'read' ? view.log : null;
+
+  const readModal = (
+    <Modal
+      open={reading !== null}
+      centered
+      width={640}
+      title={
+        reading && (
+          <Space direction="vertical" size={2} style={{ width: '92%' }}>
+            <Typography.Text
+              strong
+              style={{ fontSize: 17, lineHeight: 1.4, wordBreak: 'break-word' }}
+            >
+              {reading.title}
+            </Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+              <ClockCircleOutlined style={{ marginRight: 6 }} />
+              Updated {dayjs(reading.updatedAt).format('MMM D, YYYY HH:mm')}
+            </Typography.Text>
           </Space>
-        }
-        extra={
+        )
+      }
+      onCancel={() => setView({ kind: 'list' })}
+      footer={
+        reading && (
           <Space>
-            <Button size="small" icon={<EditOutlined />} onClick={() => setEditing({ log })} />
+            <Button icon={<EditOutlined />} onClick={() => setEditing({ log: reading })}>
+              Edit
+            </Button>
             <Popconfirm
               title="Delete this log?"
               okText="Delete"
               okButtonProps={{ danger: true, loading: deleteMutation.isPending }}
-              onConfirm={() => deleteMutation.mutate(log.id)}
+              onConfirm={() => deleteMutation.mutate(reading.id)}
             >
-              <Button size="small" danger icon={<DeleteOutlined />} />
+              <Button danger icon={<DeleteOutlined />}>
+                Delete
+              </Button>
             </Popconfirm>
           </Space>
-        }
-      >
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          Updated {dayjs(log.updatedAt).format('MMM D, YYYY HH:mm')}
-        </Typography.Text>
-        <Typography.Paragraph style={{ marginTop: 12, whiteSpace: 'pre-wrap' }}>
-          {log.content?.trim() ? (
-            log.content
+        )
+      }
+    >
+      {reading && (
+        <div
+          style={{
+            marginTop: 4,
+            padding: '14px 16px',
+            background: token.colorFillQuaternary,
+            border: `1px solid ${token.colorBorderSecondary}`,
+            borderRadius: token.borderRadiusLG,
+            maxHeight: '60vh',
+            overflow: 'auto',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            lineHeight: 1.7,
+            fontSize: 14,
+          }}
+        >
+          {reading.content?.trim() ? (
+            reading.content
           ) : (
             <Typography.Text type="secondary" italic>
               No content
             </Typography.Text>
           )}
-        </Typography.Paragraph>
-        {editor}
-      </Card>
-    );
-  }
+        </div>
+      )}
+    </Modal>
+  );
 
   return (
     <Card
@@ -189,6 +216,7 @@ export function LogsPanel({ artifactId, exportTitle }: LogsPanelProps) {
         items={logs}
         documentTitle={exportTitle}
       />
+      {readModal}
       {editor}
     </Card>
   );
