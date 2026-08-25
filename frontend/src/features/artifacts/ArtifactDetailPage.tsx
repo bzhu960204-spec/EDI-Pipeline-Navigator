@@ -50,6 +50,7 @@ import {
 } from '../../api/artifacts';
 import { extractErrorMessage } from '../../api/client';
 import { AdvanceStatusModal } from './AdvanceStatusModal';
+import { LogsPanel } from './LogsPanel';
 
 function formatBytes(bytes: number): string {
   if (!bytes) return '0 B';
@@ -356,6 +357,10 @@ export function ArtifactDetailPage() {
               />
             )}
           </Card>
+
+          <div style={{ marginTop: 16 }}>
+            <LogsPanel artifactId={artifactId} exportTitle={artifact.ediRef || artifact.name} />
+          </div>
         </Col>
       </Row>
 

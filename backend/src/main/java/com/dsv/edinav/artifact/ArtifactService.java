@@ -1,10 +1,12 @@
 package com.dsv.edinav.artifact;
 
 import com.dsv.edinav.artifact.dto.ArtifactDetailDto;
+import com.dsv.edinav.artifact.dto.ArtifactLogDto;
 import com.dsv.edinav.artifact.dto.ArtifactNodeDto;
 import com.dsv.edinav.artifact.dto.ArtifactSummaryDto;
 import com.dsv.edinav.artifact.dto.CreateArtifactRequest;
 import com.dsv.edinav.artifact.dto.CreateFolderRequest;
+import com.dsv.edinav.artifact.dto.LogRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
 import com.dsv.edinav.common.ApiException;
 import com.dsv.edinav.storage.FileStorageService;
@@ -38,6 +40,7 @@ public class ArtifactService {
     private final ArtifactRepository artifactRepository;
     private final ArtifactNodeRepository nodeRepository;
     private final StatusHistoryRepository historyRepository;
+    private final ArtifactLogRepository logRepository;
     private final TemplateService templateService;
     private final FileStorageService storage;
     private final WorkflowStepRepository stepRepository;
@@ -47,6 +50,7 @@ public class ArtifactService {
     public ArtifactService(ArtifactRepository artifactRepository,
                            ArtifactNodeRepository nodeRepository,
                            StatusHistoryRepository historyRepository,
+                           ArtifactLogRepository logRepository,
                            TemplateService templateService,
                            FileStorageService storage,
                            WorkflowStepRepository stepRepository,
@@ -55,6 +59,7 @@ public class ArtifactService {
         this.artifactRepository = artifactRepository;
         this.nodeRepository = nodeRepository;
         this.historyRepository = historyRepository;
+        this.logRepository = logRepository;
         this.templateService = templateService;
         this.storage = storage;
         this.stepRepository = stepRepository;
@@ -101,9 +106,69 @@ public class ArtifactService {
     public void delete(Long ownerId, Long id) {
         requireOwned(ownerId, id);
         historyRepository.deleteByArtifactId(id);
+        logRepository.deleteByArtifactId(id);
         nodeRepository.deleteByArtifactId(id);
         artifactRepository.deleteById(id);
         storage.deleteArtifactDirectory(id);
+    }
+
+    // ---------------- Logs ----------------
+
+    @Transactional(readOnly = true)
+    public List<ArtifactLogDto> listLogs(Long ownerId, Long artifactId) {
+        requireOwned(ownerId, artifactId);
+        return logRepository.findByArtifactIdOrderByCreatedAtAsc(artifactId).stream()
+                .map(this::toLogDto)
+                .toList();
+    }
+
+    @Transactional
+    public ArtifactLogDto createLog(Long ownerId, Long artifactId, LogRequest request) {
+        requireOwned(ownerId, artifactId);
+        if (request.title() == null || request.title().isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Title is required");
+        }
+        ArtifactLog log = new ArtifactLog();
+        log.setArtifactId(artifactId);
+        log.setTitle(request.title().trim());
+        log.setContent(request.content() == null ? "" : request.content());
+        logRepository.save(log);
+        return toLogDto(log);
+    }
+
+    @Transactional
+    public ArtifactLogDto updateLog(Long ownerId, Long artifactId, Long logId, LogRequest request) {
+        requireOwned(ownerId, artifactId);
+        ArtifactLog log = requireLog(artifactId, logId);
+        if (request.title() != null && !request.title().isBlank()) {
+            log.setTitle(request.title().trim());
+        }
+        if (request.content() != null) {
+            log.setContent(request.content());
+        }
+        logRepository.save(log);
+        return toLogDto(log);
+    }
+
+    @Transactional
+    public void deleteLog(Long ownerId, Long artifactId, Long logId) {
+        requireOwned(ownerId, artifactId);
+        ArtifactLog log = requireLog(artifactId, logId);
+        logRepository.delete(log);
+    }
+
+    private ArtifactLog requireLog(Long artifactId, Long logId) {
+        ArtifactLog log = logRepository.findById(logId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Log not found"));
+        if (!log.getArtifactId().equals(artifactId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Log does not belong to this artifact");
+        }
+        return log;
+    }
+
+    private ArtifactLogDto toLogDto(ArtifactLog log) {
+        return new ArtifactLogDto(log.getId(), log.getTitle(), log.getContent(),
+                log.getCreatedAt(), log.getUpdatedAt());
     }
 
     // ---------------- Nodes ----------------
