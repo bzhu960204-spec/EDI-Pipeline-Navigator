@@ -52,6 +52,34 @@ export interface CreateArtifactPayload {
   name: string;
   ediRef?: string;
   templateId?: number | null;
+  importToken?: string | null;
+  selectedTemplatePaths?: string[];
+}
+
+/** A folder or file discovered inside an uploaded import archive. */
+export interface ImportNode {
+  name: string;
+  path: string;
+  folder: boolean;
+  sizeBytes: number;
+  children: ImportNode[];
+}
+
+/** A template folder offered as an optional addition when importing a directory. */
+export interface TemplateFolder {
+  path: string;
+  name: string;
+  depth: number;
+  presentInImport: boolean;
+}
+
+export interface ImportAnalysis {
+  importToken: string;
+  importTree: ImportNode[];
+  templateFolders: TemplateFolder[];
+  fileCount: number;
+  folderCount: number;
+  totalBytes: number;
 }
 
 export async function fetchArtifacts(): Promise<ArtifactSummary[]> {
@@ -66,6 +94,16 @@ export async function fetchArtifact(id: number): Promise<ArtifactDetail> {
 
 export async function createArtifact(payload: CreateArtifactPayload): Promise<ArtifactDetail> {
   const { data } = await api.post<ArtifactDetail>('/artifacts', payload);
+  return data;
+}
+
+export async function analyzeImport(file: File, templateId?: number | null): Promise<ImportAnalysis> {
+  const form = new FormData();
+  form.append('file', file);
+  const url = templateId != null ? `/artifacts/import/analyze?templateId=${templateId}` : '/artifacts/import/analyze';
+  const { data } = await api.post<ImportAnalysis>(url, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
   return data;
 }
 

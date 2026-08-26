@@ -9,8 +9,8 @@ import com.dsv.edinav.artifact.dto.ChecklistViewDto;
 import com.dsv.edinav.artifact.dto.CreateArtifactRequest;
 import com.dsv.edinav.artifact.dto.CreateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.CreateFolderRequest;
-import com.dsv.edinav.artifact.dto.MoveNodeRequest;
-import com.dsv.edinav.artifact.dto.RenameNodeRequest;
+import com.dsv.edinav.artifact.dto.ImportAnalysisDto;
+import com.dsv.edinav.artifact.dto.MoveNodeRequest;import com.dsv.edinav.artifact.dto.RenameNodeRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
 import com.dsv.edinav.artifact.dto.UpdateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.UpdateNotesRequest;
@@ -59,6 +59,13 @@ public class ArtifactController {
     public ArtifactDetailDto create(@Valid @RequestBody CreateArtifactRequest request,
                                     @AuthenticationPrincipal AppUserPrincipal principal) {
         return artifactService.create(principal.getId(), request);
+    }
+
+    @PostMapping("/import/analyze")
+    public ImportAnalysisDto analyzeImport(@RequestParam("file") MultipartFile file,
+                                           @RequestParam(required = false) Long templateId,
+                                           @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.analyzeImport(principal.getId(), file, templateId);
     }
 
     @GetMapping("/{id}")

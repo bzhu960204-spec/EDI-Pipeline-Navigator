@@ -53,6 +53,24 @@ public class FileStorageService {
         return relative;
     }
 
+    /** Copies an existing file (e.g. from import staging) into an artifact's storage and returns its relative path. */
+    public String storeFromPath(Long artifactId, Path source, String originalName) {
+        String base = originalName == null ? "file" : originalName;
+        String safeName = sanitize(Paths.get(base).getFileName().toString());
+        String relative = artifactId + "/" + UUID.randomUUID() + "_" + safeName;
+        Path target = root.resolve(relative).normalize();
+        if (!target.startsWith(root)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid file path");
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            Files.copy(source, target);
+        } catch (IOException e) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to store file: " + e.getMessage());
+        }
+        return relative;
+    }
+
     public Path resolve(String relativePath) {
         Path target = root.resolve(relativePath).normalize();
         if (!target.startsWith(root)) {

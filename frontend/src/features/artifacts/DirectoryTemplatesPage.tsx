@@ -762,7 +762,7 @@ export function DirectoryTemplatesPage() {
         : updateTemplate(selectedId as number, payload),
     onSuccess: (saved, payload) => {
       const prevId = selectedIdRef.current;
-      clearDraft(prevId);
+      if (prevId != null) clearDraft(prevId);
       clearDraft(saved.id);
       message.success('Template saved');
       if (prevId === 'new') {

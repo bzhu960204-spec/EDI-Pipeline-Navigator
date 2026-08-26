@@ -11,11 +11,15 @@ import com.dsv.edinav.artifact.dto.ChecklistViewDto;
 import com.dsv.edinav.artifact.dto.CreateArtifactRequest;
 import com.dsv.edinav.artifact.dto.CreateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.CreateFolderRequest;
+import com.dsv.edinav.artifact.dto.ImportAnalysisDto;
+import com.dsv.edinav.artifact.dto.ImportNodeDto;
 import com.dsv.edinav.artifact.dto.LogRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
+import com.dsv.edinav.artifact.dto.TemplateFolderDto;
 import com.dsv.edinav.artifact.dto.UpdateChecklistItemRequest;
 import com.dsv.edinav.common.ApiException;
 import com.dsv.edinav.storage.FileStorageService;
+import com.dsv.edinav.storage.ImportStagingService;
 import com.dsv.edinav.template.DirTemplateChecklistItem;
 import com.dsv.edinav.template.DirTemplateNode;
 import com.dsv.edinav.template.TemplateService;
@@ -32,12 +36,16 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -51,6 +59,7 @@ public class ArtifactService {
     private final ArtifactLogRepository logRepository;
     private final TemplateService templateService;
     private final FileStorageService storage;
+    private final ImportStagingService importStaging;
     private final WorkflowStepRepository stepRepository;
     private final WorkflowRepository workflowRepository;
     private final UserRepository userRepository;
@@ -62,6 +71,7 @@ public class ArtifactService {
                            ArtifactLogRepository logRepository,
                            TemplateService templateService,
                            FileStorageService storage,
+                           ImportStagingService importStaging,
                            WorkflowStepRepository stepRepository,
                            WorkflowRepository workflowRepository,
                            UserRepository userRepository) {
@@ -72,6 +82,7 @@ public class ArtifactService {
         this.logRepository = logRepository;
         this.templateService = templateService;
         this.storage = storage;
+        this.importStaging = importStaging;
         this.stepRepository = stepRepository;
         this.workflowRepository = workflowRepository;
         this.userRepository = userRepository;
@@ -97,10 +108,37 @@ public class ArtifactService {
         artifact.setTemplateId(templateId);
         artifactRepository.save(artifact);
 
+        boolean hasImport = request.importToken() != null && !request.importToken().isBlank();
+        // normalized folder path -> artifact folder node id (populated as folders are created)
+        Map<String, Long> folderPathToNodeId = new java.util.HashMap<>();
+        if (hasImport) {
+            materializeImport(artifact.getId(), request.importToken(), folderPathToNodeId);
+        }
         if (templateId != null) {
-            instantiateTemplate(artifact.getId(), templateId);
+            instantiateTemplateOverlay(artifact.getId(), templateId, hasImport,
+                    request.selectedTemplatePaths(), folderPathToNodeId);
+        }
+        if (hasImport) {
+            importStaging.deleteToken(request.importToken());
         }
         return getDetail(ownerId, artifact.getId());
+    }
+
+    @Transactional(readOnly = true)
+    public ImportAnalysisDto analyzeImport(Long ownerId, MultipartFile file, Long templateId) {
+        String token = importStaging.stageZip(file);
+        Path root = effectiveImportRoot(importStaging.resolveToken(token));
+        int[] counts = new int[2];
+        long[] bytes = new long[1];
+        List<ImportNodeDto> tree = buildImportTree(root, "", counts, bytes);
+        Set<String> importFolderPaths = new java.util.HashSet<>();
+        collectImportFolderPaths(tree, importFolderPaths);
+        List<TemplateFolderDto> templateFolders = List.of();
+        Long resolved = templateService.resolveTemplateId(templateId);
+        if (resolved != null) {
+            templateFolders = buildTemplateFolderDtos(resolved, importFolderPaths);
+        }
+        return new ImportAnalysisDto(token, tree, templateFolders, counts[0], counts[1], bytes[0]);
     }
 
     @Transactional(readOnly = true)
@@ -570,41 +608,129 @@ public class ArtifactService {
 
     // ---------------- Helpers ----------------
 
-    private void instantiateTemplate(Long artifactId, Long templateId) {
-        List<DirTemplateNode> templateNodes = templateService.getNodes(templateId);
-        Map<Long, List<DirTemplateNode>> byParent = templateNodes.stream()
-                .collect(Collectors.groupingBy(n -> n.getParentId() == null ? 0L : n.getParentId()));
-        Map<Long, Long> nodeIdMap = new java.util.HashMap<>();
-        createTemplateChildren(artifactId, 0L, null, byParent, nodeIdMap);
-        instantiateTemplateChecklist(artifactId, templateId, nodeIdMap);
+    /** Materialises a staged import tree into artifact nodes, recording folder paths for template overlay. */
+    private void materializeImport(Long artifactId, String token, Map<String, Long> folderPathToNodeId) {
+        Path root = effectiveImportRoot(importStaging.resolveToken(token));
+        createImportChildren(artifactId, root, null, "", folderPathToNodeId);
     }
 
-    private void createTemplateChildren(Long artifactId, Long templateParentKey, Long artifactParentId,
-                                        Map<Long, List<DirTemplateNode>> byParent, Map<Long, Long> nodeIdMap) {
-        List<DirTemplateNode> children = byParent.getOrDefault(templateParentKey, List.of()).stream()
-                .sorted(Comparator.comparingInt(DirTemplateNode::getOrderIndex))
-                .toList();
-        int order = 0;
-        for (DirTemplateNode tn : children) {
+    /**
+     * When an archive wraps everything in a single top-level directory (the common case when a
+     * project folder is zipped), treat that directory's contents as the root so import paths line
+     * up with template paths, which have no such wrapper.
+     */
+    private Path effectiveImportRoot(Path root) {
+        List<Path> entries = listSorted(root);
+        if (entries.size() == 1 && Files.isDirectory(entries.get(0))) {
+            return entries.get(0);
+        }
+        return root;
+    }
+
+    private void createImportChildren(Long artifactId, Path dir, Long parentId, String parentPath,
+                                      Map<String, Long> folderPathToNodeId) {
+        List<Path> entries = listSorted(dir);
+        for (Path entry : entries) {
+            String name = clampName(entry.getFileName().toString());
+            String childPath = parentPath.isEmpty() ? name : parentPath + "/" + name;
+            boolean folder = Files.isDirectory(entry);
             ArtifactNode node = new ArtifactNode();
             node.setArtifactId(artifactId);
-            node.setParentId(artifactParentId);
-            node.setName(tn.getName());
-            node.setFolder(true);
-            node.setOrderIndex(order++);
-            nodeRepository.save(node);
-            nodeIdMap.put(tn.getId(), node.getId());
-            createTemplateChildren(artifactId, tn.getId(), node.getId(), byParent, nodeIdMap);
+            node.setParentId(parentId);
+            node.setName(name);
+            node.setFolder(folder);
+            node.setOrderIndex(nodeRepository.nextOrderIndex(artifactId, parentId));
+            if (folder) {
+                nodeRepository.save(node);
+                folderPathToNodeId.put(normalizePath(childPath), node.getId());
+                createImportChildren(artifactId, entry, node.getId(), childPath, folderPathToNodeId);
+            } else {
+                String stored = storage.storeFromPath(artifactId, entry, name);
+                node.setStoredPath(stored);
+                node.setSizeBytes(fileSize(entry));
+                node.setContentType(probeContentType(entry));
+                nodeRepository.save(node);
+            }
         }
     }
 
-    private void instantiateTemplateChecklist(Long artifactId, Long templateId, Map<Long, Long> nodeIdMap) {
+    /** Builds the artifact tree from a template, only creating selected folders when an import is present. */
+    private void instantiateTemplateOverlay(Long artifactId, Long templateId, boolean hasImport,
+                                            List<String> selectedTemplatePaths,
+                                            Map<String, Long> folderPathToNodeId) {
+        List<DirTemplateNode> templateNodes = templateService.getNodes(templateId);
+        Map<Long, DirTemplateNode> byId = templateNodes.stream()
+                .collect(Collectors.toMap(DirTemplateNode::getId, n -> n));
+        // template node id -> normalized full path
+        Map<Long, String> templatePath = new java.util.HashMap<>();
+        for (DirTemplateNode tn : templateNodes) {
+            templatePath.put(tn.getId(), normalizePath(templateFullPath(tn, byId)));
+        }
+
+        Set<String> wanted = null;
+        if (hasImport) {
+            wanted = new java.util.HashSet<>();
+            if (selectedTemplatePaths != null) {
+                for (String p : selectedTemplatePaths) {
+                    String norm = normalizePath(p);
+                    if (norm.isEmpty()) {
+                        continue;
+                    }
+                    wanted.add(norm);
+                    // ensure ancestors are created so the branch stays connected
+                    int slash = norm.lastIndexOf('/');
+                    while (slash > 0) {
+                        norm = norm.substring(0, slash);
+                        wanted.add(norm);
+                        slash = norm.lastIndexOf('/');
+                    }
+                }
+            }
+        }
+
+        List<DirTemplateNode> ordered = templateNodes.stream()
+                .sorted(Comparator.comparingInt((DirTemplateNode n) -> depthOf(templatePath.get(n.getId())))
+                        .thenComparingInt(DirTemplateNode::getOrderIndex))
+                .toList();
+        for (DirTemplateNode tn : ordered) {
+            String path = templatePath.get(tn.getId());
+            if (folderPathToNodeId.containsKey(path)) {
+                continue; // already present from the import
+            }
+            if (hasImport && !wanted.contains(path)) {
+                continue; // not selected by the user
+            }
+            Long parentNodeId = null;
+            if (tn.getParentId() != null) {
+                parentNodeId = folderPathToNodeId.get(templatePath.get(tn.getParentId()));
+            }
+            ArtifactNode node = new ArtifactNode();
+            node.setArtifactId(artifactId);
+            node.setParentId(parentNodeId);
+            node.setName(tn.getName());
+            node.setFolder(true);
+            node.setOrderIndex(nodeRepository.nextOrderIndex(artifactId, parentNodeId));
+            nodeRepository.save(node);
+            folderPathToNodeId.put(path, node.getId());
+        }
+        instantiateTemplateChecklist(artifactId, templateId, templatePath, folderPathToNodeId);
+    }
+
+    private void instantiateTemplateChecklist(Long artifactId, Long templateId,
+                                              Map<Long, String> templatePath,
+                                              Map<String, Long> folderPathToNodeId) {
         List<DirTemplateChecklistItem> templateItems = templateService.getChecklistItems(templateId);
         int order = 0;
         for (DirTemplateChecklistItem ti : templateItems) {
-            Long folderNodeId = ti.getTemplateNodeId() == null ? null : nodeIdMap.get(ti.getTemplateNodeId());
-            if (ti.getTemplateNodeId() != null && folderNodeId == null) {
-                continue;
+            Long folderNodeId;
+            if (ti.getTemplateNodeId() == null) {
+                folderNodeId = null; // attached to the artifact root
+            } else {
+                String path = templatePath.get(ti.getTemplateNodeId());
+                folderNodeId = path == null ? null : folderPathToNodeId.get(path);
+                if (folderNodeId == null) {
+                    continue; // owning folder was not created
+                }
             }
             ArtifactChecklistItem item = new ArtifactChecklistItem();
             item.setArtifactId(artifactId);
@@ -615,6 +741,120 @@ public class ArtifactService {
             item.setOrderIndex(order++);
             checklistRepository.save(item);
         }
+    }
+
+    // ---------------- Import analysis helpers ----------------
+
+    private List<ImportNodeDto> buildImportTree(Path dir, String parentPath, int[] counts, long[] bytes) {
+        List<ImportNodeDto> result = new ArrayList<>();
+        for (Path entry : listSorted(dir)) {
+            String name = clampName(entry.getFileName().toString());
+            String childPath = parentPath.isEmpty() ? name : parentPath + "/" + name;
+            if (Files.isDirectory(entry)) {
+                counts[1]++;
+                List<ImportNodeDto> children = buildImportTree(entry, childPath, counts, bytes);
+                result.add(new ImportNodeDto(name, childPath, true, 0, children));
+            } else {
+                counts[0]++;
+                long size = fileSize(entry);
+                bytes[0] += size;
+                result.add(new ImportNodeDto(name, childPath, false, size, List.of()));
+            }
+        }
+        return result;
+    }
+
+    private void collectImportFolderPaths(List<ImportNodeDto> nodes, Set<String> acc) {
+        for (ImportNodeDto node : nodes) {
+            if (node.folder()) {
+                acc.add(normalizePath(node.path()));
+                collectImportFolderPaths(node.children(), acc);
+            }
+        }
+    }
+
+    private List<TemplateFolderDto> buildTemplateFolderDtos(Long templateId, Set<String> importFolderPaths) {
+        List<DirTemplateNode> templateNodes = templateService.getNodes(templateId);
+        Map<Long, DirTemplateNode> byId = templateNodes.stream()
+                .collect(Collectors.toMap(DirTemplateNode::getId, n -> n));
+        return templateNodes.stream()
+                .map(tn -> {
+                    String path = templateFullPath(tn, byId);
+                    boolean present = importFolderPaths.contains(normalizePath(path));
+                    return new TemplateFolderDto(path, tn.getName(), depthOf(normalizePath(path)), present);
+                })
+                .sorted(Comparator.comparing(TemplateFolderDto::path, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+    }
+
+    private String templateFullPath(DirTemplateNode node, Map<Long, DirTemplateNode> byId) {
+        List<String> segments = new ArrayList<>();
+        DirTemplateNode current = node;
+        int guard = 0;
+        while (current != null && guard++ < 100) {
+            segments.add(0, current.getName());
+            current = current.getParentId() == null ? null : byId.get(current.getParentId());
+        }
+        return String.join("/", segments);
+    }
+
+    private List<Path> listSorted(Path dir) {
+        try (Stream<Path> stream = Files.list(dir)) {
+            return stream.sorted(Comparator
+                            .comparing((Path p) -> Files.isDirectory(p) ? 0 : 1)
+                            .thenComparing(p -> p.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
+                    .toList();
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    private long fileSize(Path entry) {
+        try {
+            return Files.size(entry);
+        } catch (IOException e) {
+            return 0;
+        }
+    }
+
+    private String probeContentType(Path entry) {
+        try {
+            return Files.probeContentType(entry);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private String clampName(String name) {
+        return name.length() > 260 ? name.substring(0, 260) : name;
+    }
+
+    /** Normalises a folder path for case-insensitive matching between import and template. */
+    private String normalizePath(String path) {
+        if (path == null) {
+            return "";
+        }
+        String normalised = path.replace('\\', '/').trim();
+        String[] segments = normalised.split("/");
+        StringBuilder sb = new StringBuilder();
+        for (String segment : segments) {
+            String s = segment.trim();
+            if (s.isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('/');
+            }
+            sb.append(s.toLowerCase());
+        }
+        return sb.toString();
+    }
+
+    private int depthOf(String normalizedPath) {
+        if (normalizedPath == null || normalizedPath.isEmpty()) {
+            return 0;
+        }
+        return (int) normalizedPath.chars().filter(c -> c == '/').count() + 1;
     }
 
     private void collectSubtree(ArtifactNode node, Map<Long, List<ArtifactNode>> byParent, List<ArtifactNode> acc) {
