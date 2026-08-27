@@ -63,6 +63,7 @@ import {
   moveNode,
   renameNode,
   saveArtifactAsTemplate,
+  updateArtifact,
   updateNodeNotes,
   uploadFiles,
   type ArtifactNode,
@@ -177,6 +178,8 @@ export function ArtifactDetailPage() {
   const [menuNode, setMenuNode] = useState<ArtifactNode | null>(null);
   const [saveTemplateForm] = Form.useForm<{ name: string; description?: string; isDefault: boolean }>();
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [editForm] = Form.useForm<{ name: string; ediRef?: string }>();
+  const [editOpen, setEditOpen] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<Key[]>([ROOT_KEY]);
   const [fileFilter, setFileFilter] = useState('');
   const [includeSubfolders, setIncludeSubfolders] = useState(true);
@@ -279,6 +282,17 @@ export function ArtifactDetailPage() {
       invalidate();
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to rename')),
+  });
+
+  const editArtifactMutation = useMutation({
+    mutationFn: (values: { name: string; ediRef?: string }) =>
+      updateArtifact(artifactId, { name: values.name, ediRef: values.ediRef ?? null }),
+    onSuccess: () => {
+      message.success('Artifact updated');
+      setEditOpen(false);
+      invalidate();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to update artifact')),
   });
 
   const notesMutation = useMutation({
@@ -735,6 +749,17 @@ export function ArtifactDetailPage() {
             {artifact.name}
           </Typography.Title>
           {artifact.ediRef && <Tag>{artifact.ediRef}</Tag>}
+          <Tooltip title="Edit name">
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => {
+                editForm.setFieldsValue({ name: artifact.name, ediRef: artifact.ediRef ?? undefined });
+                setEditOpen(true);
+              }}
+            />
+          </Tooltip>
           {artifact.currentStepName ? (
             <Tag color="blue">{artifact.currentStepName}</Tag>
           ) : (
@@ -789,6 +814,30 @@ export function ArtifactDetailPage() {
         onCancel={() => setAdvanceOpen(false)}
         onSubmit={(values) => advance.mutate(values)}
       />
+
+      <Modal
+        open={editOpen}
+        title="Edit artifact"
+        okText="Save"
+        confirmLoading={editArtifactMutation.isPending}
+        onCancel={() => setEditOpen(false)}
+        onOk={() => editForm.submit()}
+        destroyOnClose
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={(v) => editArtifactMutation.mutate(v)}
+          requiredMark={false}
+        >
+          <Form.Item name="name" label="Name" rules={[{ required: true, message: 'Name is required' }]}>
+            <Input placeholder="e.g. EDIT0019557 - JP-MBL - Schenker Migration" autoFocus />
+          </Form.Item>
+          <Form.Item name="ediRef" label="EDI reference">
+            <Input placeholder="e.g. EDIT0019557" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         open={saveTemplateOpen}

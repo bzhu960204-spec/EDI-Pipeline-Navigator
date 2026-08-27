@@ -13,6 +13,7 @@ import com.dsv.edinav.artifact.dto.ImportAnalysisDto;
 import com.dsv.edinav.artifact.dto.MoveNodeRequest;import com.dsv.edinav.artifact.dto.RenameNodeRequest;
 import com.dsv.edinav.artifact.dto.SaveAsTemplateRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
+import com.dsv.edinav.artifact.dto.UpdateArtifactRequest;
 import com.dsv.edinav.artifact.dto.UpdateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.UpdateNotesRequest;
 import com.dsv.edinav.security.AppUserPrincipal;
@@ -74,6 +75,13 @@ public class ArtifactController {
     public ArtifactDetailDto get(@PathVariable Long id,
                                  @AuthenticationPrincipal AppUserPrincipal principal) {
         return artifactService.getDetail(principal.getId(), id);
+    }
+
+    @PatchMapping("/{id}")
+    public ArtifactDetailDto update(@PathVariable Long id,
+                                    @Valid @RequestBody UpdateArtifactRequest request,
+                                    @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.updateArtifact(principal.getId(), id, request.name(), request.ediRef());
     }
 
     @DeleteMapping("/{id}")

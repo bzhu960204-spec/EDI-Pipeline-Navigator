@@ -98,6 +98,16 @@ export async function createArtifact(payload: CreateArtifactPayload): Promise<Ar
   return data;
 }
 
+export interface UpdateArtifactPayload {
+  name: string;
+  ediRef?: string | null;
+}
+
+export async function updateArtifact(id: number, payload: UpdateArtifactPayload): Promise<ArtifactDetail> {
+  const { data } = await api.patch<ArtifactDetail>(`/artifacts/${id}`, payload);
+  return data;
+}
+
 export async function analyzeImport(file: File, templateId?: number | null): Promise<ImportAnalysis> {
   const form = new FormData();
   form.append('file', file);

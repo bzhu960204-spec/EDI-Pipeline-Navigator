@@ -1,5 +1,5 @@
-import { App as AntApp, Button, Card, Empty, Popconfirm, Row, Space, Table, Tag, Typography } from 'antd';
-import { DeleteOutlined, DownloadOutlined, FolderOpenOutlined, PlusOutlined } from '@ant-design/icons';
+import { App as AntApp, Button, Card, Empty, Form, Input, Modal, Popconfirm, Row, Space, Table, Tag, Typography } from 'antd';
+import { DeleteOutlined, DownloadOutlined, EditOutlined, FolderOpenOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -9,6 +9,7 @@ import {
   deleteArtifact,
   exportArtifact,
   fetchArtifacts,
+  updateArtifact,
   type ArtifactSummary,
 } from '../../api/artifacts';
 import { fetchTemplates } from '../../api/templates';
@@ -20,6 +21,8 @@ export function ArtifactsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+  const [editForm] = Form.useForm<{ name: string; ediRef?: string }>();
+  const [editId, setEditId] = useState<number | null>(null);
 
   const { data: artifacts = [], isLoading } = useQuery({
     queryKey: ['artifacts'],
@@ -46,6 +49,23 @@ export function ArtifactsPage() {
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete artifact')),
   });
+
+  const update = useMutation({
+    mutationFn: ({ id, values }: { id: number; values: { name: string; ediRef?: string } }) =>
+      updateArtifact(id, { name: values.name, ediRef: values.ediRef ?? null }),
+    onSuccess: (artifact) => {
+      message.success('Artifact updated');
+      setEditId(null);
+      queryClient.invalidateQueries({ queryKey: ['artifacts'] });
+      queryClient.invalidateQueries({ queryKey: ['artifacts', artifact.id] });
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to update artifact')),
+  });
+
+  const openEdit = (a: ArtifactSummary) => {
+    setEditId(a.id);
+    editForm.setFieldsValue({ name: a.name, ediRef: a.ediRef ?? undefined });
+  };
 
   const handleExport = async (a: ArtifactSummary) => {
     try {
@@ -84,6 +104,9 @@ export function ArtifactsPage() {
         <Space>
           <Button size="small" icon={<FolderOpenOutlined />} onClick={() => navigate(`/artifacts/${a.id}`)}>
             Open
+          </Button>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(a)}>
+            Edit
           </Button>
           <Button size="small" icon={<DownloadOutlined />} onClick={() => handleExport(a)}>
             ZIP
@@ -133,6 +156,30 @@ export function ArtifactsPage() {
         onCancel={() => setCreateOpen(false)}
         onSubmit={(values) => create.mutate(values)}
       />
+
+      <Modal
+        open={editId != null}
+        title="Edit artifact"
+        okText="Save"
+        confirmLoading={update.isPending}
+        onCancel={() => setEditId(null)}
+        onOk={() => editForm.submit()}
+        destroyOnClose
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={(values) => editId != null && update.mutate({ id: editId, values })}
+          requiredMark={false}
+        >
+          <Form.Item name="name" label="Name" rules={[{ required: true, message: 'Name is required' }]}>
+            <Input placeholder="e.g. EDIT0019557 - JP-MBL - Schenker Migration" autoFocus />
+          </Form.Item>
+          <Form.Item name="ediRef" label="EDI reference">
+            <Input placeholder="e.g. EDIT0019557" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

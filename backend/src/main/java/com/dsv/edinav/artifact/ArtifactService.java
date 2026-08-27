@@ -308,6 +308,20 @@ public class ArtifactService {
     }
 
     @Transactional
+    public ArtifactDetailDto updateArtifact(Long ownerId, Long artifactId, String rawName, String rawEdiRef) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        String name = rawName == null ? "" : rawName.trim();
+        if (name.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Name is required");
+        }
+        artifact.setName(name);
+        String ediRef = rawEdiRef == null ? null : rawEdiRef.trim();
+        artifact.setEdiRef(ediRef == null || ediRef.isBlank() ? null : ediRef);
+        touch(artifact);
+        return getDetail(ownerId, artifactId);
+    }
+
+    @Transactional
     public ArtifactDetailDto renameNode(Long ownerId, Long artifactId, Long nodeId, String rawName) {
         Artifact artifact = requireOwned(ownerId, artifactId);
         ArtifactNode node = requireNode(artifactId, nodeId);
