@@ -11,10 +11,12 @@ import com.dsv.edinav.artifact.dto.CreateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.CreateFolderRequest;
 import com.dsv.edinav.artifact.dto.ImportAnalysisDto;
 import com.dsv.edinav.artifact.dto.MoveNodeRequest;import com.dsv.edinav.artifact.dto.RenameNodeRequest;
+import com.dsv.edinav.artifact.dto.SaveAsTemplateRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
 import com.dsv.edinav.artifact.dto.UpdateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.UpdateNotesRequest;
 import com.dsv.edinav.security.AppUserPrincipal;
+import com.dsv.edinav.template.dto.TemplateDto;
 import jakarta.validation.Valid;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.ContentDisposition;
@@ -198,5 +200,12 @@ public class ArtifactController {
     public ChecklistViewDto deleteChecklistItem(@PathVariable Long id, @PathVariable Long itemId,
                                                 @AuthenticationPrincipal AppUserPrincipal principal) {
         return artifactService.deleteChecklistItem(principal.getId(), id, itemId);
+    }
+
+    @PostMapping("/{id}/save-as-template")
+    public TemplateDto saveAsTemplate(@PathVariable Long id,
+                                      @Valid @RequestBody SaveAsTemplateRequest request,
+                                      @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.saveAsTemplate(principal.getId(), id, request);
     }
 }

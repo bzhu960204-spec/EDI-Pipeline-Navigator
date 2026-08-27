@@ -41,6 +41,7 @@ import {
   HomeOutlined,
   InboxOutlined,
   ScheduleOutlined,
+  SaveOutlined,
   SearchOutlined,
   SwapOutlined,
   UploadOutlined,
@@ -61,6 +62,7 @@ import {
   fetchHistory,
   moveNode,
   renameNode,
+  saveArtifactAsTemplate,
   updateNodeNotes,
   uploadFiles,
   type ArtifactNode,
@@ -173,6 +175,8 @@ export function ArtifactDetailPage() {
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesNode, setNotesNode] = useState<ArtifactNode | null>(null);
   const [menuNode, setMenuNode] = useState<ArtifactNode | null>(null);
+  const [saveTemplateForm] = Form.useForm<{ name: string; description?: string; isDefault: boolean }>();
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<Key[]>([ROOT_KEY]);
   const [fileFilter, setFileFilter] = useState('');
   const [includeSubfolders, setIncludeSubfolders] = useState(true);
@@ -328,6 +332,22 @@ export function ArtifactDetailPage() {
       navigate('/artifacts');
     },
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete artifact')),
+  });
+
+  const saveAsTemplate = useMutation({
+    mutationFn: (values: { name: string; description?: string; isDefault: boolean }) =>
+      saveArtifactAsTemplate(artifactId, {
+        name: values.name.trim(),
+        description: values.description?.trim() || null,
+        isDefault: values.isDefault,
+      }),
+    onSuccess: () => {
+      message.success('Template saved');
+      queryClient.invalidateQueries({ queryKey: ['templates'] });
+      setSaveTemplateOpen(false);
+      saveTemplateForm.resetFields();
+    },
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to save template')),
   });
 
   const uploadProps: UploadProps = {
@@ -725,6 +745,9 @@ export function ArtifactDetailPage() {
           <Button icon={<DownloadOutlined />} onClick={handleExport}>
             Export ZIP
           </Button>
+          <Button icon={<SaveOutlined />} onClick={() => setSaveTemplateOpen(true)}>
+            Save as template
+          </Button>
           <Popconfirm title="Delete this artifact?" onConfirm={() => removeArtifact.mutate()}>
             <Button danger icon={<DeleteOutlined />}>
               Delete
@@ -766,6 +789,37 @@ export function ArtifactDetailPage() {
         onCancel={() => setAdvanceOpen(false)}
         onSubmit={(values) => advance.mutate(values)}
       />
+
+      <Modal
+        open={saveTemplateOpen}
+        title="Save as template"
+        okText="Save"
+        confirmLoading={saveAsTemplate.isPending}
+        onCancel={() => setSaveTemplateOpen(false)}
+        onOk={() => saveTemplateForm.submit()}
+        destroyOnClose
+      >
+        <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+          Saves the current folder structure and checklist as a new template. Files are not included.
+        </Typography.Paragraph>
+        <Form
+          form={saveTemplateForm}
+          layout="vertical"
+          initialValues={{ name: artifact.name, isDefault: false }}
+          onFinish={(v) => saveAsTemplate.mutate(v)}
+          requiredMark={false}
+        >
+          <Form.Item name="name" label="Template name" rules={[{ required: true, message: 'Name is required' }]}>
+            <Input placeholder="e.g. JP-MBL standard layout" autoFocus />
+          </Form.Item>
+          <Form.Item name="description" label="Description">
+            <Input.TextArea rows={2} placeholder="Optional" />
+          </Form.Item>
+          <Form.Item name="isDefault" label="Set as default template" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         open={folderOpen}

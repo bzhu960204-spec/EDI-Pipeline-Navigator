@@ -1,4 +1,5 @@
 import { api } from './client';
+import type { TemplateDetail } from './templates';
 
 export interface ArtifactSummary {
   id: number;
@@ -249,6 +250,21 @@ export async function assignChecklistItem(
 
 export async function deleteChecklistItem(artifactId: number, itemId: number): Promise<ChecklistView> {
   const { data } = await api.delete<ChecklistView>(`/artifacts/${artifactId}/checklist/${itemId}`);
+  return data;
+}
+
+export interface SaveAsTemplatePayload {
+  name: string;
+  description?: string | null;
+  isDefault: boolean;
+}
+
+/** Reverse-saves the artifact's current folder structure and checklist into a new template. */
+export async function saveArtifactAsTemplate(
+  artifactId: number,
+  payload: SaveAsTemplatePayload,
+): Promise<TemplateDetail> {
+  const { data } = await api.post<TemplateDetail>(`/artifacts/${artifactId}/save-as-template`, payload);
   return data;
 }
 

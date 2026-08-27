@@ -14,6 +14,7 @@ import com.dsv.edinav.artifact.dto.CreateFolderRequest;
 import com.dsv.edinav.artifact.dto.ImportAnalysisDto;
 import com.dsv.edinav.artifact.dto.ImportNodeDto;
 import com.dsv.edinav.artifact.dto.LogRequest;
+import com.dsv.edinav.artifact.dto.SaveAsTemplateRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
 import com.dsv.edinav.artifact.dto.TemplateFolderDto;
 import com.dsv.edinav.artifact.dto.UpdateChecklistItemRequest;
@@ -23,6 +24,10 @@ import com.dsv.edinav.storage.ImportStagingService;
 import com.dsv.edinav.template.DirTemplateChecklistItem;
 import com.dsv.edinav.template.DirTemplateNode;
 import com.dsv.edinav.template.TemplateService;
+import com.dsv.edinav.template.dto.ChecklistItemInput;
+import com.dsv.edinav.template.dto.TemplateDto;
+import com.dsv.edinav.template.dto.TemplateNodeInput;
+import com.dsv.edinav.template.dto.TemplateRequest;
 import com.dsv.edinav.user.User;
 import com.dsv.edinav.user.UserRepository;
 import com.dsv.edinav.workflow.Workflow;
@@ -862,6 +867,52 @@ public class ArtifactService {
         for (ArtifactNode child : byParent.getOrDefault(node.getId(), List.of())) {
             collectSubtree(child, byParent, acc);
         }
+    }
+
+    // ---------------- Save as template ----------------
+
+    /** Reverse-saves the artifact's folder structure and checklist into a new directory template. */
+    @Transactional
+    public TemplateDto saveAsTemplate(Long ownerId, Long artifactId, SaveAsTemplateRequest request) {
+        requireOwned(ownerId, artifactId);
+        List<ArtifactNode> folders = nodeRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId).stream()
+                .filter(ArtifactNode::isFolder)
+                .toList();
+        Map<Long, List<ArtifactNode>> foldersByParent = folders.stream()
+                .collect(Collectors.groupingBy(n -> n.getParentId() == null ? 0L : n.getParentId()));
+        Map<Long, List<ArtifactChecklistItem>> checklistByFolder = checklistRepository
+                .findByArtifactIdOrderByOrderIndexAsc(artifactId).stream()
+                .collect(Collectors.groupingBy(i -> i.getFolderNodeId() == null ? 0L : i.getFolderNodeId()));
+
+        List<TemplateNodeInput> nodes = buildTemplateNodes(0L, foldersByParent, checklistByFolder);
+        List<ChecklistItemInput> rootChecklist = toTemplateChecklist(checklistByFolder.get(0L));
+        TemplateRequest templateRequest = new TemplateRequest(
+                request.name(), request.description(), request.isDefault(), nodes, rootChecklist);
+        return templateService.create(templateRequest, ownerId);
+    }
+
+    private List<TemplateNodeInput> buildTemplateNodes(Long parentKey,
+                                                       Map<Long, List<ArtifactNode>> foldersByParent,
+                                                       Map<Long, List<ArtifactChecklistItem>> checklistByFolder) {
+        List<TemplateNodeInput> out = new ArrayList<>();
+        foldersByParent.getOrDefault(parentKey, List.of()).stream()
+                .sorted(Comparator.comparingInt(ArtifactNode::getOrderIndex))
+                .forEach(folder -> out.add(new TemplateNodeInput(
+                        folder.getName(),
+                        null,
+                        buildTemplateNodes(folder.getId(), foldersByParent, checklistByFolder),
+                        toTemplateChecklist(checklistByFolder.get(folder.getId())))));
+        return out;
+    }
+
+    private List<ChecklistItemInput> toTemplateChecklist(List<ArtifactChecklistItem> items) {
+        if (items == null) {
+            return List.of();
+        }
+        return items.stream()
+                .sorted(Comparator.comparingInt(ArtifactChecklistItem::getOrderIndex))
+                .map(i -> new ChecklistItemInput(i.getLabel(), i.getDescription(), i.isRequired()))
+                .toList();
     }
 
     private List<ArtifactNodeDto> buildNodeTree(Long artifactId) {
