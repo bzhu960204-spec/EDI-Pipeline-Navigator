@@ -30,8 +30,9 @@ data/
 *.mv.db
 *.trace.db
 
-# ===== Dev launcher state =====
+# ===== Dev / prod launcher state =====
 .edinav-dev-state.json
+.edinav-prod-state.json
 
 # ===== Logs =====
 logs/
