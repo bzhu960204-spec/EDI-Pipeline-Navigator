@@ -12,5 +12,8 @@ public record ArtifactDetailDto(
         Long templateId,
         Instant createdAt,
         Instant updatedAt,
+        Long versionId,
+        Integer versionNumber,
+        Boolean currentVersion,
         List<ArtifactNodeDto> nodes
 ) {}

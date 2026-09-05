@@ -73,6 +73,20 @@ export async function exportTemplate(id: number): Promise<TemplatePayload> {
   return data;
 }
 
+/** Downloads an empty folder skeleton (folders only) of the template as a ZIP archive. */
+export async function downloadTemplateSkeleton(id: number, name: string): Promise<void> {
+  const res = await api.get(`/templates/${id}/skeleton`, { responseType: 'blob' });
+  const fileName = `${(name || 'template').replace(/[^\w.-]+/g, '_')}.zip`;
+  const url = window.URL.createObjectURL(res.data as Blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export async function updateTemplateFromImport(id: number, payload: TemplatePayload): Promise<TemplateDetail> {
   const { data } = await api.put<TemplateDetail>(`/templates/${id}/import`, payload);
   return data;

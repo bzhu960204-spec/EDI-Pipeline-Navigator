@@ -69,7 +69,7 @@ export function ArtifactsPage() {
 
   const handleExport = async (a: ArtifactSummary) => {
     try {
-      await exportArtifact(a.id, `${a.ediRef || a.name}.zip`);
+      await exportArtifact(a.id, `${a.name}.zip`);
     } catch (e) {
       message.error(extractErrorMessage(e, 'Export failed'));
     }

@@ -45,6 +45,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createTemplate,
   deleteTemplate,
+  downloadTemplateSkeleton,
   exportTemplate,
   fetchTemplate,
   fetchTemplates,
@@ -828,6 +829,12 @@ export function DirectoryTemplatesPage() {
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to export template')),
   });
 
+  const runSkeleton = useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) => downloadTemplateSkeleton(id, name),
+    onSuccess: () => message.success('Skeleton downloaded'),
+    onError: (e) => message.error(extractErrorMessage(e, 'Failed to download skeleton')),
+  });
+
   const runUpdate = useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: TemplatePayload }) =>
       updateTemplateFromImport(id, payload),
@@ -1137,56 +1144,62 @@ export function DirectoryTemplatesPage() {
             return (
             <Card
               title={selectedId === 'new' ? 'New template' : 'Edit template'}
-              extra={
-                <Space>
-                  {admin && statusTag}
-                  {selectedId !== 'new' && (
-                    <Button icon={<FileTextOutlined />} onClick={() => setPreviewOpen(true)}>
-                      Preview
-                    </Button>
-                  )}
-                  {admin && typeof selectedId === 'number' && (
-                    <>
-                      <Button
-                        icon={<DownloadOutlined />}
-                        loading={runExport.isPending}
-                        onClick={() => runExport.mutate(selectedId)}
-                      >
-                        Export
-                      </Button>
-                      <Button
-                        icon={<ImportOutlined />}
-                        onClick={() => {
-                          setUpdateText('');
-                          setUpdateOpen(true);
-                        }}
-                      >
-                        Update from JSON
-                      </Button>
-                      <Popconfirm
-                        title="Delete this template?"
-                        description="Artifacts already created keep their folders."
-                        onConfirm={() => remove.mutate(selectedId)}
-                      >
-                        <Button danger icon={<DeleteOutlined />}>
-                          Delete
-                        </Button>
-                      </Popconfirm>
-                    </>
-                  )}
-                  {admin && (
-                    <Button
-                      type="primary"
-                      icon={<SaveOutlined />}
-                      loading={save.isPending}
-                      onClick={handleSave}
-                    >
-                      Save
-                    </Button>
-                  )}
-                </Space>
-              }
+              extra={admin && statusTag}
             >
+              <Space wrap size="small" style={{ marginBottom: 16 }}>
+                {selectedId !== 'new' && (
+                  <Button icon={<FileTextOutlined />} onClick={() => setPreviewOpen(true)}>
+                    Preview
+                  </Button>
+                )}
+                {admin && typeof selectedId === 'number' && (
+                  <>
+                    <Button
+                      icon={<DownloadOutlined />}
+                      loading={runExport.isPending}
+                      onClick={() => runExport.mutate(selectedId)}
+                    >
+                      Export
+                    </Button>
+                    <Button
+                      icon={<FolderOutlined />}
+                      loading={runSkeleton.isPending}
+                      onClick={() => runSkeleton.mutate({ id: selectedId, name })}
+                    >
+                      Download skeleton
+                    </Button>
+                    <Button
+                      icon={<ImportOutlined />}
+                      onClick={() => {
+                        setUpdateText('');
+                        setUpdateOpen(true);
+                      }}
+                    >
+                      Update from JSON
+                    </Button>
+                    <Popconfirm
+                      title="Delete this template?"
+                      description="Artifacts already created keep their folders."
+                      onConfirm={() => remove.mutate(selectedId)}
+                    >
+                      <Button danger icon={<DeleteOutlined />}>
+                        Delete
+                      </Button>
+                    </Popconfirm>
+                  </>
+                )}
+                {admin && (
+                  <Button
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    loading={save.isPending}
+                    onClick={handleSave}
+                  >
+                    Save
+                  </Button>
+                )}
+              </Space>
+
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 {recoverable && (
                   <Alert

@@ -13,11 +13,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 @Service
 public class TemplateService {
@@ -128,6 +132,27 @@ public class TemplateService {
         return items.stream()
                 .map(c -> new ChecklistItemInput(c.label(), c.description(), c.required()))
                 .toList();
+    }
+
+    /** Streams an empty folder skeleton (folders only, no files) of the template as a ZIP archive. */
+    @Transactional(readOnly = true)
+    public void exportSkeletonZip(Long id, OutputStream out) {
+        requireOwned(id);
+        List<TemplateNodeDto> roots = buildNodeTree(id);
+        try (ZipOutputStream zip = new ZipOutputStream(out)) {
+            writeSkeletonEntries(zip, "", roots);
+        } catch (IOException e) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to build skeleton archive: " + e.getMessage());
+        }
+    }
+
+    private void writeSkeletonEntries(ZipOutputStream zip, String prefix, List<TemplateNodeDto> nodes) throws IOException {
+        for (TemplateNodeDto node : nodes) {
+            String dirPath = prefix + node.name() + "/";
+            zip.putNextEntry(new ZipEntry(dirPath));
+            zip.closeEntry();
+            writeSkeletonEntries(zip, dirPath, node.children());
+        }
     }
 
     @Transactional(readOnly = true)

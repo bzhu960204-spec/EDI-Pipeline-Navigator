@@ -32,6 +32,9 @@ export interface ArtifactDetail {
   currentStepId?: number | null;
   currentStepName?: string | null;
   templateId?: number | null;
+  versionId?: number | null;
+  versionNumber?: number | null;
+  currentVersion?: boolean | null;
   createdAt: string;
   updatedAt: string;
   nodes: ArtifactNode[];
@@ -286,6 +289,79 @@ export async function downloadNode(artifactId: number, nodeId: number, fileName:
 
 export async function exportArtifact(artifactId: number, fileName: string): Promise<void> {
   const res = await api.get(`/artifacts/${artifactId}/export`, { responseType: 'blob' });
+  triggerDownload(res.data as Blob, fileName);
+}
+
+// ---------------- Versions ----------------
+
+export interface ArtifactVersion {
+  id: number;
+  versionNumber: number;
+  comment?: string | null;
+  createdBy: number;
+  createdByName?: string | null;
+  createdAt: string;
+  current: boolean;
+}
+
+export interface DiffEntry {
+  path: string;
+  name: string;
+  folder: boolean;
+  sizeBytes: number;
+  oldSizeBytes: number;
+}
+
+export interface VersionDiff {
+  token: string;
+  added: DiffEntry[];
+  modified: DiffEntry[];
+  deleted: DiffEntry[];
+  unchanged: DiffEntry[];
+  addedCount: number;
+  modifiedCount: number;
+  deletedCount: number;
+  unchangedCount: number;
+}
+
+export async function analyzeVersionUpload(artifactId: number, file: File): Promise<VersionDiff> {
+  const form = new FormData();
+  form.append('file', file);
+  const { data } = await api.post<VersionDiff>(`/artifacts/${artifactId}/versions/analyze`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+}
+
+export async function createVersion(
+  artifactId: number,
+  payload: { token: string; comment?: string },
+): Promise<ArtifactDetail> {
+  const { data } = await api.post<ArtifactDetail>(`/artifacts/${artifactId}/versions`, payload);
+  return data;
+}
+
+export async function fetchVersions(artifactId: number): Promise<ArtifactVersion[]> {
+  const { data } = await api.get<ArtifactVersion[]>(`/artifacts/${artifactId}/versions`);
+  return data;
+}
+
+export async function fetchVersionDetail(artifactId: number, versionId: number): Promise<ArtifactDetail> {
+  const { data } = await api.get<ArtifactDetail>(`/artifacts/${artifactId}/versions/${versionId}`);
+  return data;
+}
+
+export async function setCurrentVersion(artifactId: number, versionId: number): Promise<ArtifactDetail> {
+  const { data } = await api.post<ArtifactDetail>(`/artifacts/${artifactId}/versions/${versionId}/set-current`, {});
+  return data;
+}
+
+export async function deleteVersion(artifactId: number, versionId: number): Promise<void> {
+  await api.delete(`/artifacts/${artifactId}/versions/${versionId}`);
+}
+
+export async function exportVersion(artifactId: number, versionId: number, fileName: string): Promise<void> {
+  const res = await api.get(`/artifacts/${artifactId}/versions/${versionId}/export`, { responseType: 'blob' });
   triggerDownload(res.data as Blob, fileName);
 }
 

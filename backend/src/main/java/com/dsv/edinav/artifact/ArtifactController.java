@@ -4,11 +4,13 @@ import com.dsv.edinav.artifact.dto.AdvanceRequest;
 import com.dsv.edinav.artifact.dto.ArtifactDetailDto;
 import com.dsv.edinav.artifact.dto.ArtifactNodeDto;
 import com.dsv.edinav.artifact.dto.ArtifactSummaryDto;
+import com.dsv.edinav.artifact.dto.ArtifactVersionDto;
 import com.dsv.edinav.artifact.dto.AssignChecklistRequest;
 import com.dsv.edinav.artifact.dto.ChecklistViewDto;
 import com.dsv.edinav.artifact.dto.CreateArtifactRequest;
 import com.dsv.edinav.artifact.dto.CreateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.CreateFolderRequest;
+import com.dsv.edinav.artifact.dto.CreateVersionRequest;
 import com.dsv.edinav.artifact.dto.ImportAnalysisDto;
 import com.dsv.edinav.artifact.dto.MoveNodeRequest;import com.dsv.edinav.artifact.dto.RenameNodeRequest;
 import com.dsv.edinav.artifact.dto.SaveAsTemplateRequest;
@@ -16,6 +18,7 @@ import com.dsv.edinav.artifact.dto.StatusHistoryDto;
 import com.dsv.edinav.artifact.dto.UpdateArtifactRequest;
 import com.dsv.edinav.artifact.dto.UpdateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.UpdateNotesRequest;
+import com.dsv.edinav.artifact.dto.VersionDiffDto;
 import com.dsv.edinav.security.AppUserPrincipal;
 import com.dsv.edinav.template.dto.TemplateDto;
 import jakarta.validation.Valid;
@@ -155,8 +158,7 @@ public class ArtifactController {
     public ResponseEntity<StreamingResponseBody> export(@PathVariable Long id,
                                                         @AuthenticationPrincipal AppUserPrincipal principal) {
         ArtifactDetailDto artifact = artifactService.getDetail(principal.getId(), id);
-        String fileName = (artifact.ediRef() != null && !artifact.ediRef().isBlank()
-                ? artifact.ediRef() : artifact.name()).replaceAll("[\\\\/:*?\"<>|]", "_") + ".zip";
+        String fileName = artifact.name().replaceAll("[\\\\/:*?\"<>|]", "_") + ".zip";
         StreamingResponseBody body = out -> artifactService.exportZip(principal.getId(), id, out);
         ContentDisposition disposition = ContentDisposition.attachment().filename(fileName, StandardCharsets.UTF_8).build();
         return ResponseEntity.ok()
@@ -215,5 +217,57 @@ public class ArtifactController {
                                       @Valid @RequestBody SaveAsTemplateRequest request,
                                       @AuthenticationPrincipal AppUserPrincipal principal) {
         return artifactService.saveAsTemplate(principal.getId(), id, request);
+    }
+
+    @PostMapping("/{id}/versions/analyze")
+    public VersionDiffDto analyzeVersionUpload(@PathVariable Long id,
+                                               @RequestParam("file") MultipartFile file,
+                                               @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.analyzeVersionUpload(principal.getId(), id, file);
+    }
+
+    @PostMapping("/{id}/versions")
+    public ArtifactDetailDto createVersion(@PathVariable Long id,
+                                           @RequestBody CreateVersionRequest request,
+                                           @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.createVersion(principal.getId(), id, request.token(), request.comment());
+    }
+
+    @GetMapping("/{id}/versions")
+    public List<ArtifactVersionDto> listVersions(@PathVariable Long id,
+                                                 @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.listVersions(principal.getId(), id);
+    }
+
+    @GetMapping("/{id}/versions/{versionId}")
+    public ArtifactDetailDto getVersionDetail(@PathVariable Long id, @PathVariable Long versionId,
+                                              @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.getVersionDetail(principal.getId(), id, versionId);
+    }
+
+    @PostMapping("/{id}/versions/{versionId}/set-current")
+    public ArtifactDetailDto setCurrentVersion(@PathVariable Long id, @PathVariable Long versionId,
+                                               @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.setCurrentVersion(principal.getId(), id, versionId);
+    }
+
+    @DeleteMapping("/{id}/versions/{versionId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteVersion(@PathVariable Long id, @PathVariable Long versionId,
+                              @AuthenticationPrincipal AppUserPrincipal principal) {
+        artifactService.deleteVersion(principal.getId(), id, versionId);
+    }
+
+    @GetMapping("/{id}/versions/{versionId}/export")
+    public ResponseEntity<StreamingResponseBody> exportVersion(@PathVariable Long id, @PathVariable Long versionId,
+                                                               @AuthenticationPrincipal AppUserPrincipal principal) {
+        ArtifactDetailDto version = artifactService.getVersionDetail(principal.getId(), id, versionId);
+        String fileName = version.name().replaceAll("[\\\\/:*?\"<>|]", "_") + "-v" + version.versionNumber() + ".zip";
+        StreamingResponseBody body = out -> artifactService.exportVersionZip(principal.getId(), id, versionId, out);
+        ContentDisposition disposition = ContentDisposition.attachment().filename(fileName, StandardCharsets.UTF_8).build();
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .body(body);
     }
 }

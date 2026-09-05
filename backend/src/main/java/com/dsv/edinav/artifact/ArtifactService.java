@@ -5,12 +5,14 @@ import com.dsv.edinav.artifact.dto.ArtifactDetailDto;
 import com.dsv.edinav.artifact.dto.ArtifactLogDto;
 import com.dsv.edinav.artifact.dto.ArtifactNodeDto;
 import com.dsv.edinav.artifact.dto.ArtifactSummaryDto;
+import com.dsv.edinav.artifact.dto.ArtifactVersionDto;
 import com.dsv.edinav.artifact.dto.ChecklistFolderDto;
 import com.dsv.edinav.artifact.dto.ChecklistSummaryDto;
 import com.dsv.edinav.artifact.dto.ChecklistViewDto;
 import com.dsv.edinav.artifact.dto.CreateArtifactRequest;
 import com.dsv.edinav.artifact.dto.CreateChecklistItemRequest;
 import com.dsv.edinav.artifact.dto.CreateFolderRequest;
+import com.dsv.edinav.artifact.dto.DiffEntry;
 import com.dsv.edinav.artifact.dto.ImportAnalysisDto;
 import com.dsv.edinav.artifact.dto.ImportNodeDto;
 import com.dsv.edinav.artifact.dto.LogRequest;
@@ -18,6 +20,7 @@ import com.dsv.edinav.artifact.dto.SaveAsTemplateRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
 import com.dsv.edinav.artifact.dto.TemplateFolderDto;
 import com.dsv.edinav.artifact.dto.UpdateChecklistItemRequest;
+import com.dsv.edinav.artifact.dto.VersionDiffDto;
 import com.dsv.edinav.common.ApiException;
 import com.dsv.edinav.storage.FileStorageService;
 import com.dsv.edinav.storage.ImportStagingService;
@@ -40,14 +43,19 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -58,6 +66,7 @@ import java.util.zip.ZipOutputStream;
 public class ArtifactService {
 
     private final ArtifactRepository artifactRepository;
+    private final ArtifactVersionRepository versionRepository;
     private final ArtifactNodeRepository nodeRepository;
     private final ArtifactChecklistItemRepository checklistRepository;
     private final StatusHistoryRepository historyRepository;
@@ -70,6 +79,7 @@ public class ArtifactService {
     private final UserRepository userRepository;
 
     public ArtifactService(ArtifactRepository artifactRepository,
+                           ArtifactVersionRepository versionRepository,
                            ArtifactNodeRepository nodeRepository,
                            ArtifactChecklistItemRepository checklistRepository,
                            StatusHistoryRepository historyRepository,
@@ -81,6 +91,7 @@ public class ArtifactService {
                            WorkflowRepository workflowRepository,
                            UserRepository userRepository) {
         this.artifactRepository = artifactRepository;
+        this.versionRepository = versionRepository;
         this.nodeRepository = nodeRepository;
         this.checklistRepository = checklistRepository;
         this.historyRepository = historyRepository;
@@ -113,14 +124,22 @@ public class ArtifactService {
         artifact.setTemplateId(templateId);
         artifactRepository.save(artifact);
 
+        ArtifactVersion version = new ArtifactVersion();
+        version.setArtifactId(artifact.getId());
+        version.setVersionNumber(1);
+        version.setCreatedBy(ownerId);
+        version.setCurrent(true);
+        versionRepository.save(version);
+        Long versionId = version.getId();
+
         boolean hasImport = request.importToken() != null && !request.importToken().isBlank();
         // normalized folder path -> artifact folder node id (populated as folders are created)
         Map<String, Long> folderPathToNodeId = new java.util.HashMap<>();
         if (hasImport) {
-            materializeImport(artifact.getId(), request.importToken(), folderPathToNodeId);
+            materializeImport(artifact.getId(), versionId, request.importToken(), folderPathToNodeId);
         }
         if (templateId != null) {
-            instantiateTemplateOverlay(artifact.getId(), templateId, hasImport,
+            instantiateTemplateOverlay(artifact.getId(), versionId, templateId, hasImport,
                     request.selectedTemplatePaths(), folderPathToNodeId);
         }
         if (hasImport) {
@@ -146,13 +165,19 @@ public class ArtifactService {
         return new ImportAnalysisDto(token, tree, templateFolders, counts[0], counts[1], bytes[0]);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ArtifactDetailDto getDetail(Long ownerId, Long id) {
         Artifact artifact = requireOwned(ownerId, id);
+        ArtifactVersion current = currentVersion(id);
+        return buildDetail(artifact, current);
+    }
+
+    private ArtifactDetailDto buildDetail(Artifact artifact, ArtifactVersion version) {
         return new ArtifactDetailDto(artifact.getId(), artifact.getName(), artifact.getEdiRef(),
                 artifact.getCurrentStepId(), stepName(artifact.getCurrentStepId()),
                 artifact.getTemplateId(), artifact.getCreatedAt(), artifact.getUpdatedAt(),
-                buildNodeTree(id));
+                version.getId(), version.getVersionNumber(), version.isCurrent(),
+                buildNodeTree(version.getId()));
     }
 
     @Transactional
@@ -162,6 +187,7 @@ public class ArtifactService {
         logRepository.deleteByArtifactId(id);
         checklistRepository.deleteByArtifactId(id);
         nodeRepository.deleteByArtifactId(id);
+        versionRepository.deleteByArtifactId(id);
         artifactRepository.deleteById(id);
         storage.deleteArtifactDirectory(id);
     }
@@ -230,13 +256,15 @@ public class ArtifactService {
     @Transactional
     public ArtifactNodeDto createFolder(Long ownerId, Long artifactId, CreateFolderRequest request) {
         Artifact artifact = requireOwned(ownerId, artifactId);
-        validateParent(artifactId, request.parentId());
+        ArtifactVersion version = currentVersion(artifactId);
+        validateParent(artifactId, version.getId(), request.parentId());
         ArtifactNode node = new ArtifactNode();
         node.setArtifactId(artifactId);
+        node.setVersionId(version.getId());
         node.setParentId(request.parentId());
         node.setName(request.name().trim());
         node.setFolder(true);
-        node.setOrderIndex(nodeRepository.nextOrderIndex(artifactId, request.parentId()));
+        node.setOrderIndex(nodeRepository.nextOrderIndexInVersion(version.getId(), request.parentId()));
         nodeRepository.save(node);
         touch(artifact);
         return toNodeDto(node, List.of());
@@ -245,8 +273,9 @@ public class ArtifactService {
     @Transactional
     public void uploadFiles(Long ownerId, Long artifactId, Long folderId, MultipartFile[] files) {
         Artifact artifact = requireOwned(ownerId, artifactId);
+        ArtifactVersion version = currentVersion(artifactId);
         if (folderId != null) {
-            ArtifactNode folder = requireNode(artifactId, folderId);
+            ArtifactNode folder = requireCurrentNode(artifactId, version.getId(), folderId);
             if (!folder.isFolder()) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Target is not a folder");
             }
@@ -261,13 +290,15 @@ public class ArtifactService {
             String stored = storage.store(artifactId, file);
             ArtifactNode node = new ArtifactNode();
             node.setArtifactId(artifactId);
+            node.setVersionId(version.getId());
             node.setParentId(folderId);
             node.setName(cleanFileName(file.getOriginalFilename()));
             node.setFolder(false);
             node.setStoredPath(stored);
             node.setSizeBytes(file.getSize());
             node.setContentType(file.getContentType());
-            node.setOrderIndex(nodeRepository.nextOrderIndex(artifactId, folderId));
+            node.setHash(hashOfStored(stored));
+            node.setOrderIndex(nodeRepository.nextOrderIndexInVersion(version.getId(), folderId));
             nodeRepository.save(node);
         }
         touch(artifact);
@@ -295,15 +326,16 @@ public class ArtifactService {
     @Transactional
     public void deleteNode(Long ownerId, Long artifactId, Long nodeId) {
         Artifact artifact = requireOwned(ownerId, artifactId);
-        ArtifactNode node = requireNode(artifactId, nodeId);
-        List<ArtifactNode> all = nodeRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId);
+        ArtifactVersion version = currentVersion(artifactId);
+        ArtifactNode node = requireCurrentNode(artifactId, version.getId(), nodeId);
+        List<ArtifactNode> all = nodeRepository.findByVersionIdOrderByOrderIndexAsc(version.getId());
         Map<Long, List<ArtifactNode>> byParent = all.stream()
                 .collect(Collectors.groupingBy(n -> n.getParentId() == null ? 0L : n.getParentId()));
         List<ArtifactNode> toDelete = new ArrayList<>();
         collectSubtree(node, byParent, toDelete);
-        toDelete.stream().filter(n -> !n.isFolder()).forEach(n -> storage.delete(n.getStoredPath()));
+        cleanupChecklistForDeletedNodes(version.getId(), toDelete);
         nodeRepository.deleteAll(toDelete);
-        cleanupChecklistForDeletedNodes(artifactId, toDelete);
+        refCountedDelete(toDelete);
         touch(artifact);
     }
 
@@ -324,12 +356,13 @@ public class ArtifactService {
     @Transactional
     public ArtifactDetailDto renameNode(Long ownerId, Long artifactId, Long nodeId, String rawName) {
         Artifact artifact = requireOwned(ownerId, artifactId);
-        ArtifactNode node = requireNode(artifactId, nodeId);
+        ArtifactVersion version = currentVersion(artifactId);
+        ArtifactNode node = requireCurrentNode(artifactId, version.getId(), nodeId);
         String desired = cleanNodeName(rawName);
         if (desired.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Name is required");
         }
-        node.setName(uniqueName(artifactId, node.getParentId(), desired, node.getId()));
+        node.setName(uniqueName(version.getId(), node.getParentId(), desired, node.getId()));
         nodeRepository.save(node);
         touch(artifact);
         return getDetail(ownerId, artifactId);
@@ -338,7 +371,8 @@ public class ArtifactService {
     @Transactional
     public ArtifactDetailDto updateNotes(Long ownerId, Long artifactId, Long nodeId, String notes) {
         Artifact artifact = requireOwned(ownerId, artifactId);
-        ArtifactNode node = requireNode(artifactId, nodeId);
+        ArtifactVersion version = currentVersion(artifactId);
+        ArtifactNode node = requireCurrentNode(artifactId, version.getId(), nodeId);
         String trimmed = notes == null ? null : notes.strip();
         node.setNotes(trimmed == null || trimmed.isBlank() ? null : trimmed);
         nodeRepository.save(node);
@@ -349,8 +383,9 @@ public class ArtifactService {
     @Transactional
     public ArtifactDetailDto moveNode(Long ownerId, Long artifactId, Long nodeId, Long targetParentId) {
         Artifact artifact = requireOwned(ownerId, artifactId);
-        ArtifactNode node = requireNode(artifactId, nodeId);
-        validateParent(artifactId, targetParentId);
+        ArtifactVersion version = currentVersion(artifactId);
+        ArtifactNode node = requireCurrentNode(artifactId, version.getId(), nodeId);
+        validateParent(artifactId, version.getId(), targetParentId);
         if (java.util.Objects.equals(node.getParentId(), targetParentId)) {
             return getDetail(ownerId, artifactId);
         }
@@ -358,8 +393,8 @@ public class ArtifactService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Cannot move a folder into itself or one of its subfolders");
         }
         node.setParentId(targetParentId);
-        node.setName(uniqueName(artifactId, targetParentId, node.getName(), node.getId()));
-        node.setOrderIndex(nodeRepository.nextOrderIndex(artifactId, targetParentId));
+        node.setName(uniqueName(version.getId(), targetParentId, node.getName(), node.getId()));
+        node.setOrderIndex(nodeRepository.nextOrderIndexInVersion(version.getId(), targetParentId));
         nodeRepository.save(node);
         touch(artifact);
         return getDetail(ownerId, artifactId);
@@ -370,33 +405,37 @@ public class ArtifactService {
     @Transactional(readOnly = true)
     public ChecklistViewDto getChecklist(Long ownerId, Long artifactId) {
         requireOwned(ownerId, artifactId);
-        return buildChecklistView(artifactId);
+        ArtifactVersion version = currentVersion(artifactId);
+        return buildChecklistView(version.getId());
     }
 
     @Transactional
     public ChecklistViewDto createChecklistItem(Long ownerId, Long artifactId, CreateChecklistItemRequest request) {
         Artifact artifact = requireOwned(ownerId, artifactId);
-        validateFolder(artifactId, request.folderNodeId());
+        ArtifactVersion version = currentVersion(artifactId);
+        validateFolder(artifactId, version.getId(), request.folderNodeId());
         if (request.label() == null || request.label().isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Label is required");
         }
         ArtifactChecklistItem item = new ArtifactChecklistItem();
         item.setArtifactId(artifactId);
+        item.setVersionId(version.getId());
         item.setFolderNodeId(request.folderNodeId());
         item.setLabel(request.label().trim());
         item.setDescription(blankToNull(request.description()));
         item.setRequired(request.required());
-        item.setOrderIndex(checklistRepository.nextOrderIndex(artifactId, request.folderNodeId()));
+        item.setOrderIndex(checklistRepository.nextOrderIndexInVersion(version.getId(), request.folderNodeId()));
         checklistRepository.save(item);
         touch(artifact);
-        return buildChecklistView(artifactId);
+        return buildChecklistView(version.getId());
     }
 
     @Transactional
     public ChecklistViewDto updateChecklistItem(Long ownerId, Long artifactId, Long itemId,
                                                 UpdateChecklistItemRequest request) {
         Artifact artifact = requireOwned(ownerId, artifactId);
-        ArtifactChecklistItem item = requireChecklistItem(artifactId, itemId);
+        ArtifactVersion version = currentVersion(artifactId);
+        ArtifactChecklistItem item = requireCurrentChecklistItem(artifactId, version.getId(), itemId);
         if (request.label() == null || request.label().isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Label is required");
         }
@@ -405,17 +444,18 @@ public class ArtifactService {
         item.setRequired(request.required());
         checklistRepository.save(item);
         touch(artifact);
-        return buildChecklistView(artifactId);
+        return buildChecklistView(version.getId());
     }
 
     @Transactional
     public ChecklistViewDto assignChecklistItem(Long ownerId, Long artifactId, Long itemId, Long nodeId) {
         Artifact artifact = requireOwned(ownerId, artifactId);
-        ArtifactChecklistItem item = requireChecklistItem(artifactId, itemId);
+        ArtifactVersion version = currentVersion(artifactId);
+        ArtifactChecklistItem item = requireCurrentChecklistItem(artifactId, version.getId(), itemId);
         if (nodeId == null) {
             item.setSatisfiedByNodeId(null);
         } else {
-            ArtifactNode file = requireNode(artifactId, nodeId);
+            ArtifactNode file = requireCurrentNode(artifactId, version.getId(), nodeId);
             if (file.isFolder()) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Only a file can fulfil a checklist item");
             }
@@ -426,23 +466,24 @@ public class ArtifactService {
         }
         checklistRepository.save(item);
         touch(artifact);
-        return buildChecklistView(artifactId);
+        return buildChecklistView(version.getId());
     }
 
     @Transactional
     public ChecklistViewDto deleteChecklistItem(Long ownerId, Long artifactId, Long itemId) {
         Artifact artifact = requireOwned(ownerId, artifactId);
-        ArtifactChecklistItem item = requireChecklistItem(artifactId, itemId);
+        ArtifactVersion version = currentVersion(artifactId);
+        ArtifactChecklistItem item = requireCurrentChecklistItem(artifactId, version.getId(), itemId);
         checklistRepository.delete(item);
         touch(artifact);
-        return buildChecklistView(artifactId);
+        return buildChecklistView(version.getId());
     }
 
-    private ChecklistViewDto buildChecklistView(Long artifactId) {
-        List<ArtifactNode> nodes = nodeRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId);
+    private ChecklistViewDto buildChecklistView(Long versionId) {
+        List<ArtifactNode> nodes = nodeRepository.findByVersionIdOrderByOrderIndexAsc(versionId);
         Map<Long, ArtifactNode> byId = nodes.stream()
                 .collect(Collectors.toMap(ArtifactNode::getId, n -> n));
-        List<ArtifactChecklistItem> items = checklistRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId);
+        List<ArtifactChecklistItem> items = checklistRepository.findByVersionIdOrderByOrderIndexAsc(versionId);
         Map<Long, List<ArtifactChecklistItem>> byFolder = items.stream()
                 .collect(Collectors.groupingBy(i -> i.getFolderNodeId() == null ? 0L : i.getFolderNodeId()));
 
@@ -502,11 +543,11 @@ public class ArtifactService {
         return String.join("/", parts);
     }
 
-    private void cleanupChecklistForDeletedNodes(Long artifactId, List<ArtifactNode> deleted) {
+    private void cleanupChecklistForDeletedNodes(Long versionId, List<ArtifactNode> deleted) {
         java.util.Set<Long> deletedIds = deleted.stream()
                 .map(ArtifactNode::getId)
                 .collect(Collectors.toSet());
-        List<ArtifactChecklistItem> items = checklistRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId);
+        List<ArtifactChecklistItem> items = checklistRepository.findByVersionIdOrderByOrderIndexAsc(versionId);
         List<ArtifactChecklistItem> toRemove = new ArrayList<>();
         for (ArtifactChecklistItem item : items) {
             if (item.getFolderNodeId() != null && deletedIds.contains(item.getFolderNodeId())) {
@@ -521,11 +562,11 @@ public class ArtifactService {
         }
     }
 
-    private void validateFolder(Long artifactId, Long folderNodeId) {
+    private void validateFolder(Long artifactId, Long versionId, Long folderNodeId) {
         if (folderNodeId == null) {
             return;
         }
-        ArtifactNode folder = requireNode(artifactId, folderNodeId);
+        ArtifactNode folder = requireCurrentNode(artifactId, versionId, folderNodeId);
         if (!folder.isFolder()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Checklist can only attach to a folder");
         }
@@ -536,6 +577,14 @@ public class ArtifactService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Checklist item not found"));
         if (!item.getArtifactId().equals(artifactId)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Checklist item does not belong to this artifact");
+        }
+        return item;
+    }
+
+    private ArtifactChecklistItem requireCurrentChecklistItem(Long artifactId, Long versionId, Long itemId) {
+        ArtifactChecklistItem item = requireChecklistItem(artifactId, itemId);
+        if (!Objects.equals(item.getVersionId(), versionId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Checklist item is not part of the current version");
         }
         return item;
     }
@@ -553,7 +602,19 @@ public class ArtifactService {
     @Transactional(readOnly = true)
     public void exportZip(Long ownerId, Long artifactId, OutputStream out) {
         requireOwned(ownerId, artifactId);
-        List<ArtifactNode> all = nodeRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId);
+        ArtifactVersion current = currentVersion(artifactId);
+        writeVersionZip(current.getId(), out);
+    }
+
+    @Transactional(readOnly = true)
+    public void exportVersionZip(Long ownerId, Long artifactId, Long versionId, OutputStream out) {
+        requireOwned(ownerId, artifactId);
+        requireVersion(artifactId, versionId);
+        writeVersionZip(versionId, out);
+    }
+
+    private void writeVersionZip(Long versionId, OutputStream out) {
+        List<ArtifactNode> all = nodeRepository.findByVersionIdOrderByOrderIndexAsc(versionId);
         Map<Long, List<ArtifactNode>> byParent = all.stream()
                 .collect(Collectors.groupingBy(n -> n.getParentId() == null ? 0L : n.getParentId()));
         try (ZipOutputStream zip = new ZipOutputStream(out)) {
@@ -625,12 +686,374 @@ public class ArtifactService {
                 .toList();
     }
 
+    // ---------------- Versioning ----------------
+
+    @Transactional(readOnly = true)
+    public List<ArtifactVersionDto> listVersions(Long ownerId, Long artifactId) {
+        requireOwned(ownerId, artifactId);
+        Map<Long, String> userNames = userRepository.findAll().stream()
+                .collect(Collectors.toMap(User::getId, User::getDisplayName));
+        return versionRepository.findByArtifactIdOrderByVersionNumberAsc(artifactId).stream()
+                .sorted(Comparator.comparingInt(ArtifactVersion::getVersionNumber).reversed())
+                .map(v -> new ArtifactVersionDto(v.getId(), v.getVersionNumber(), v.getComment(),
+                        v.getCreatedBy(), userNames.get(v.getCreatedBy()), v.getCreatedAt(), v.isCurrent()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public ArtifactDetailDto getVersionDetail(Long ownerId, Long artifactId, Long versionId) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        ArtifactVersion version = requireVersion(artifactId, versionId);
+        return buildDetail(artifact, version);
+    }
+
+    /**
+     * Compares an uploaded ZIP against the current version by full relative path + SHA-256 content hash.
+     * Lazily backfills missing hashes on current-version files. Leaves the upload staged under the returned
+     * token so {@link #createVersion} can consume it.
+     */
+    @Transactional
+    public VersionDiffDto analyzeVersionUpload(Long ownerId, Long artifactId, MultipartFile zip) {
+        requireOwned(ownerId, artifactId);
+        ArtifactVersion current = currentVersion(artifactId);
+        String token = importStaging.stageZip(zip);
+        Path root = effectiveImportRoot(importStaging.resolveToken(token));
+
+        Map<String, UploadedFile> uploaded = new LinkedHashMap<>();
+        collectUploadedFiles(root, "", uploaded);
+
+        List<ArtifactNode> currentNodes = nodeRepository.findByVersionIdOrderByOrderIndexAsc(current.getId());
+        Map<Long, ArtifactNode> byId = currentNodes.stream()
+                .collect(Collectors.toMap(ArtifactNode::getId, n -> n));
+        Map<String, ArtifactNode> currentFilesByPath = new HashMap<>();
+        for (ArtifactNode n : currentNodes) {
+            if (!n.isFolder()) {
+                currentFilesByPath.put(nodePath(byId, n.getId()), n);
+            }
+        }
+
+        List<DiffEntry> added = new ArrayList<>();
+        List<DiffEntry> modified = new ArrayList<>();
+        List<DiffEntry> deleted = new ArrayList<>();
+        List<DiffEntry> unchanged = new ArrayList<>();
+
+        for (Map.Entry<String, UploadedFile> e : uploaded.entrySet()) {
+            String path = e.getKey();
+            UploadedFile up = e.getValue();
+            ArtifactNode existing = currentFilesByPath.get(path);
+            if (existing == null) {
+                added.add(new DiffEntry(path, lastSegment(path), false, up.size(), null));
+            } else {
+                String existingHash = ensureHash(existing);
+                if (up.hash() != null && up.hash().equals(existingHash)) {
+                    unchanged.add(new DiffEntry(path, lastSegment(path), false, up.size(), existing.getSizeBytes()));
+                } else {
+                    modified.add(new DiffEntry(path, lastSegment(path), false, up.size(), existing.getSizeBytes()));
+                }
+            }
+        }
+        for (Map.Entry<String, ArtifactNode> e : currentFilesByPath.entrySet()) {
+            if (!uploaded.containsKey(e.getKey())) {
+                ArtifactNode n = e.getValue();
+                deleted.add(new DiffEntry(e.getKey(), n.getName(), false, n.getSizeBytes(), n.getSizeBytes()));
+            }
+        }
+        Comparator<DiffEntry> byPath = Comparator.comparing(DiffEntry::path, String.CASE_INSENSITIVE_ORDER);
+        added.sort(byPath);
+        modified.sort(byPath);
+        deleted.sort(byPath);
+        unchanged.sort(byPath);
+        return new VersionDiffDto(token, added, modified, deleted, unchanged,
+                added.size(), modified.size(), deleted.size(), unchanged.size());
+    }
+
+    /**
+     * Creates a new version from a previously analysed upload: materialises the uploaded tree as a full
+     * snapshot, reuses stored files whose path + hash are unchanged, migrates the checklist, and makes the
+     * new version current.
+     */
+    @Transactional
+    public ArtifactDetailDto createVersion(Long ownerId, Long artifactId, String token, String comment) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        ArtifactVersion current = currentVersion(artifactId);
+        Path root = effectiveImportRoot(importStaging.resolveToken(token));
+
+        List<ArtifactNode> currentNodes = nodeRepository.findByVersionIdOrderByOrderIndexAsc(current.getId());
+        Map<Long, ArtifactNode> currentById = currentNodes.stream()
+                .collect(Collectors.toMap(ArtifactNode::getId, n -> n));
+        Map<String, ArtifactNode> currentFilesByPath = new HashMap<>();
+        for (ArtifactNode n : currentNodes) {
+            if (!n.isFolder()) {
+                currentFilesByPath.put(nodePath(currentById, n.getId()), n);
+            }
+        }
+
+        ArtifactVersion next = new ArtifactVersion();
+        next.setArtifactId(artifactId);
+        next.setVersionNumber(versionRepository.nextVersionNumber(artifactId));
+        next.setComment(blankToNull(comment));
+        next.setCreatedBy(ownerId);
+        next.setCurrent(false);
+        versionRepository.save(next);
+
+        Map<String, Long> newFilePathToNodeId = new HashMap<>();
+        Map<String, Long> newFolderPathToNodeId = new HashMap<>();
+        materializeVersionTree(artifactId, next.getId(), root, null, "",
+                currentFilesByPath, newFilePathToNodeId, newFolderPathToNodeId);
+        migrateChecklist(current.getId(), next.getId(), currentById,
+                newFilePathToNodeId, newFolderPathToNodeId);
+
+        setCurrentFlag(artifactId, next.getId());
+        touch(artifact);
+        importStaging.deleteToken(token);
+        return getDetail(ownerId, artifactId);
+    }
+
+    @Transactional
+    public ArtifactDetailDto setCurrentVersion(Long ownerId, Long artifactId, Long versionId) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        requireVersion(artifactId, versionId);
+        setCurrentFlag(artifactId, versionId);
+        touch(artifact);
+        return getDetail(ownerId, artifactId);
+    }
+
+    @Transactional
+    public void deleteVersion(Long ownerId, Long artifactId, Long versionId) {
+        Artifact artifact = requireOwned(ownerId, artifactId);
+        ArtifactVersion version = requireVersion(artifactId, versionId);
+        if (version.isCurrent()) {
+            throw new ApiException(HttpStatus.CONFLICT, "Cannot delete the current version; set another version current first");
+        }
+        if (versionRepository.countByArtifactId(artifactId) <= 1) {
+            throw new ApiException(HttpStatus.CONFLICT, "Cannot delete the only version");
+        }
+        List<ArtifactNode> nodes = nodeRepository.findByVersionIdOrderByOrderIndexAsc(versionId);
+        checklistRepository.deleteByVersionId(versionId);
+        nodeRepository.deleteByVersionId(versionId);
+        refCountedDelete(nodes);
+        versionRepository.delete(version);
+        touch(artifact);
+    }
+
+    /** Returns the current version, lazily creating a v1 (belt-and-suspenders vs the migration) if none exists. */
+    private ArtifactVersion currentVersion(Long artifactId) {
+        return versionRepository.findByArtifactIdAndIsCurrentTrue(artifactId)
+                .orElseGet(() -> createInitialVersion(artifactId));
+    }
+
+    private ArtifactVersion createInitialVersion(Long artifactId) {
+        Artifact artifact = artifactRepository.findById(artifactId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Artifact not found"));
+        ArtifactVersion version = new ArtifactVersion();
+        version.setArtifactId(artifactId);
+        version.setVersionNumber(versionRepository.nextVersionNumber(artifactId));
+        version.setCreatedBy(artifact.getOwnerId());
+        version.setCurrent(true);
+        versionRepository.save(version);
+        // Adopt any orphan (pre-versioning) rows so the current view is populated.
+        List<ArtifactNode> orphanNodes = nodeRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId).stream()
+                .filter(n -> n.getVersionId() == null)
+                .toList();
+        orphanNodes.forEach(n -> n.setVersionId(version.getId()));
+        if (!orphanNodes.isEmpty()) {
+            nodeRepository.saveAll(orphanNodes);
+        }
+        List<ArtifactChecklistItem> orphanItems = checklistRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId).stream()
+                .filter(i -> i.getVersionId() == null)
+                .toList();
+        orphanItems.forEach(i -> i.setVersionId(version.getId()));
+        if (!orphanItems.isEmpty()) {
+            checklistRepository.saveAll(orphanItems);
+        }
+        return version;
+    }
+
+    private ArtifactVersion requireVersion(Long artifactId, Long versionId) {
+        ArtifactVersion version = versionRepository.findById(versionId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Version not found"));
+        if (!version.getArtifactId().equals(artifactId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Version does not belong to this artifact");
+        }
+        return version;
+    }
+
+    private void setCurrentFlag(Long artifactId, Long versionId) {
+        List<ArtifactVersion> all = versionRepository.findByArtifactIdOrderByVersionNumberAsc(artifactId);
+        List<ArtifactVersion> changed = new ArrayList<>();
+        for (ArtifactVersion v : all) {
+            boolean shouldBeCurrent = v.getId().equals(versionId);
+            if (v.isCurrent() != shouldBeCurrent) {
+                v.setCurrent(shouldBeCurrent);
+                changed.add(v);
+            }
+        }
+        if (!changed.isEmpty()) {
+            versionRepository.saveAll(changed);
+        }
+    }
+
+    /** Materialises the uploaded tree under a new version, reusing stored files whose path + hash match current. */
+    private void materializeVersionTree(Long artifactId, Long versionId, Path dir, Long parentId, String parentPath,
+                                        Map<String, ArtifactNode> currentFilesByPath,
+                                        Map<String, Long> newFilePathToNodeId,
+                                        Map<String, Long> newFolderPathToNodeId) {
+        for (Path entry : listSorted(dir)) {
+            String name = clampName(entry.getFileName().toString());
+            String childPath = parentPath.isEmpty() ? name : parentPath + "/" + name;
+            boolean folder = Files.isDirectory(entry);
+            ArtifactNode node = new ArtifactNode();
+            node.setArtifactId(artifactId);
+            node.setVersionId(versionId);
+            node.setParentId(parentId);
+            node.setName(name);
+            node.setFolder(folder);
+            node.setOrderIndex(nodeRepository.nextOrderIndexInVersion(versionId, parentId));
+            if (folder) {
+                nodeRepository.save(node);
+                newFolderPathToNodeId.put(childPath, node.getId());
+                materializeVersionTree(artifactId, versionId, entry, node.getId(), childPath,
+                        currentFilesByPath, newFilePathToNodeId, newFolderPathToNodeId);
+            } else {
+                String uploadedHash = hashOf(entry);
+                ArtifactNode existing = currentFilesByPath.get(childPath);
+                if (existing != null && existing.getStoredPath() != null
+                        && uploadedHash != null && uploadedHash.equals(ensureHash(existing))) {
+                    // Unchanged file: reuse the stored blob (ref-counted), no re-copy.
+                    node.setStoredPath(existing.getStoredPath());
+                    node.setSizeBytes(existing.getSizeBytes());
+                    node.setContentType(existing.getContentType());
+                    node.setHash(existing.getHash());
+                } else {
+                    node.setStoredPath(storage.storeFromPath(artifactId, entry, name));
+                    node.setSizeBytes(fileSize(entry));
+                    node.setContentType(probeContentType(entry));
+                    node.setHash(uploadedHash);
+                }
+                nodeRepository.save(node);
+                newFilePathToNodeId.put(childPath, node.getId());
+            }
+        }
+    }
+
+    /**
+     * Copies every checklist item from the old version to the new one: folder attachment re-maps by folder
+     * path (falls back to root when that folder is gone) and the satisfying file re-points only if the same
+     * path survives; otherwise the requirement stays but becomes unfulfilled.
+     */
+    private void migrateChecklist(Long oldVersionId, Long newVersionId, Map<Long, ArtifactNode> oldById,
+                                  Map<String, Long> newFilePathToNodeId, Map<String, Long> newFolderPathToNodeId) {
+        List<ArtifactChecklistItem> items = checklistRepository.findByVersionIdOrderByOrderIndexAsc(oldVersionId);
+        for (ArtifactChecklistItem item : items) {
+            ArtifactChecklistItem copy = new ArtifactChecklistItem();
+            copy.setArtifactId(item.getArtifactId());
+            copy.setVersionId(newVersionId);
+            Long newFolderId = null;
+            if (item.getFolderNodeId() != null) {
+                newFolderId = newFolderPathToNodeId.get(nodePath(oldById, item.getFolderNodeId()));
+            }
+            copy.setFolderNodeId(newFolderId);
+            copy.setLabel(item.getLabel());
+            copy.setDescription(item.getDescription());
+            copy.setRequired(item.isRequired());
+            copy.setOrderIndex(item.getOrderIndex());
+            if (item.getSatisfiedByNodeId() != null) {
+                copy.setSatisfiedByNodeId(newFilePathToNodeId.get(nodePath(oldById, item.getSatisfiedByNodeId())));
+            }
+            checklistRepository.save(copy);
+        }
+    }
+
+    /** Deletes each file's blob from disk only when no remaining node (any version) references its stored path. */
+    private void refCountedDelete(List<ArtifactNode> removed) {
+        for (ArtifactNode n : removed) {
+            String stored = n.getStoredPath();
+            if (n.isFolder() || stored == null) {
+                continue;
+            }
+            if (nodeRepository.countByStoredPath(stored) == 0) {
+                storage.delete(stored);
+            }
+        }
+    }
+
+    /** Returns the file's stored SHA-256, computing + persisting it lazily if a legacy row has none. */
+    private String ensureHash(ArtifactNode node) {
+        if (node.getHash() != null) {
+            return node.getHash();
+        }
+        if (node.getStoredPath() == null) {
+            return null;
+        }
+        String hash = hashOfStored(node.getStoredPath());
+        if (hash != null) {
+            node.setHash(hash);
+            nodeRepository.save(node);
+        }
+        return hash;
+    }
+
+    private void collectUploadedFiles(Path dir, String parentPath, Map<String, UploadedFile> acc) {
+        for (Path entry : listSorted(dir)) {
+            String name = clampName(entry.getFileName().toString());
+            String childPath = parentPath.isEmpty() ? name : parentPath + "/" + name;
+            if (Files.isDirectory(entry)) {
+                collectUploadedFiles(entry, childPath, acc);
+            } else {
+                acc.put(childPath, new UploadedFile(fileSize(entry), hashOf(entry)));
+            }
+        }
+    }
+
+    private String hashOf(Path path) {
+        try (InputStream in = Files.newInputStream(path)) {
+            return hashOf(in);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private String hashOfStored(String storedPath) {
+        try (InputStream in = storage.openStream(storedPath)) {
+            return hashOf(in);
+        } catch (IOException | ApiException e) {
+            return null;
+        }
+    }
+
+    private String hashOf(InputStream in) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                digest.update(buffer, 0, read);
+            }
+            StringBuilder sb = new StringBuilder(64);
+            for (byte b : digest.digest()) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+                sb.append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String lastSegment(String path) {
+        int slash = path.lastIndexOf('/');
+        return slash >= 0 ? path.substring(slash + 1) : path;
+    }
+
+    /** Size + content hash of a file discovered in a staged upload. */
+    private record UploadedFile(long size, String hash) {}
+
     // ---------------- Helpers ----------------
 
     /** Materialises a staged import tree into artifact nodes, recording folder paths for template overlay. */
-    private void materializeImport(Long artifactId, String token, Map<String, Long> folderPathToNodeId) {
+    private void materializeImport(Long artifactId, Long versionId, String token, Map<String, Long> folderPathToNodeId) {
         Path root = effectiveImportRoot(importStaging.resolveToken(token));
-        createImportChildren(artifactId, root, null, "", folderPathToNodeId);
+        createImportChildren(artifactId, versionId, root, null, "", folderPathToNodeId);
     }
 
     /**
@@ -646,7 +1069,7 @@ public class ArtifactService {
         return root;
     }
 
-    private void createImportChildren(Long artifactId, Path dir, Long parentId, String parentPath,
+    private void createImportChildren(Long artifactId, Long versionId, Path dir, Long parentId, String parentPath,
                                       Map<String, Long> folderPathToNodeId) {
         List<Path> entries = listSorted(dir);
         for (Path entry : entries) {
@@ -655,26 +1078,28 @@ public class ArtifactService {
             boolean folder = Files.isDirectory(entry);
             ArtifactNode node = new ArtifactNode();
             node.setArtifactId(artifactId);
+            node.setVersionId(versionId);
             node.setParentId(parentId);
             node.setName(name);
             node.setFolder(folder);
-            node.setOrderIndex(nodeRepository.nextOrderIndex(artifactId, parentId));
+            node.setOrderIndex(nodeRepository.nextOrderIndexInVersion(versionId, parentId));
             if (folder) {
                 nodeRepository.save(node);
                 folderPathToNodeId.put(normalizePath(childPath), node.getId());
-                createImportChildren(artifactId, entry, node.getId(), childPath, folderPathToNodeId);
+                createImportChildren(artifactId, versionId, entry, node.getId(), childPath, folderPathToNodeId);
             } else {
                 String stored = storage.storeFromPath(artifactId, entry, name);
                 node.setStoredPath(stored);
                 node.setSizeBytes(fileSize(entry));
                 node.setContentType(probeContentType(entry));
+                node.setHash(hashOf(entry));
                 nodeRepository.save(node);
             }
         }
     }
 
     /** Builds the artifact tree from a template, only creating selected folders when an import is present. */
-    private void instantiateTemplateOverlay(Long artifactId, Long templateId, boolean hasImport,
+    private void instantiateTemplateOverlay(Long artifactId, Long versionId, Long templateId, boolean hasImport,
                                             List<String> selectedTemplatePaths,
                                             Map<String, Long> folderPathToNodeId) {
         List<DirTemplateNode> templateNodes = templateService.getNodes(templateId);
@@ -725,17 +1150,18 @@ public class ArtifactService {
             }
             ArtifactNode node = new ArtifactNode();
             node.setArtifactId(artifactId);
+            node.setVersionId(versionId);
             node.setParentId(parentNodeId);
             node.setName(tn.getName());
             node.setFolder(true);
-            node.setOrderIndex(nodeRepository.nextOrderIndex(artifactId, parentNodeId));
+            node.setOrderIndex(nodeRepository.nextOrderIndexInVersion(versionId, parentNodeId));
             nodeRepository.save(node);
             folderPathToNodeId.put(path, node.getId());
         }
-        instantiateTemplateChecklist(artifactId, templateId, templatePath, folderPathToNodeId);
+        instantiateTemplateChecklist(artifactId, versionId, templateId, templatePath, folderPathToNodeId);
     }
 
-    private void instantiateTemplateChecklist(Long artifactId, Long templateId,
+    private void instantiateTemplateChecklist(Long artifactId, Long versionId, Long templateId,
                                               Map<Long, String> templatePath,
                                               Map<String, Long> folderPathToNodeId) {
         List<DirTemplateChecklistItem> templateItems = templateService.getChecklistItems(templateId);
@@ -753,6 +1179,7 @@ public class ArtifactService {
             }
             ArtifactChecklistItem item = new ArtifactChecklistItem();
             item.setArtifactId(artifactId);
+            item.setVersionId(versionId);
             item.setFolderNodeId(folderNodeId);
             item.setLabel(ti.getLabel());
             item.setDescription(ti.getDescription());
@@ -889,13 +1316,14 @@ public class ArtifactService {
     @Transactional
     public TemplateDto saveAsTemplate(Long ownerId, Long artifactId, SaveAsTemplateRequest request) {
         requireOwned(ownerId, artifactId);
-        List<ArtifactNode> folders = nodeRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId).stream()
+        ArtifactVersion version = currentVersion(artifactId);
+        List<ArtifactNode> folders = nodeRepository.findByVersionIdOrderByOrderIndexAsc(version.getId()).stream()
                 .filter(ArtifactNode::isFolder)
                 .toList();
         Map<Long, List<ArtifactNode>> foldersByParent = folders.stream()
                 .collect(Collectors.groupingBy(n -> n.getParentId() == null ? 0L : n.getParentId()));
         Map<Long, List<ArtifactChecklistItem>> checklistByFolder = checklistRepository
-                .findByArtifactIdOrderByOrderIndexAsc(artifactId).stream()
+                .findByVersionIdOrderByOrderIndexAsc(version.getId()).stream()
                 .collect(Collectors.groupingBy(i -> i.getFolderNodeId() == null ? 0L : i.getFolderNodeId()));
 
         List<TemplateNodeInput> nodes = buildTemplateNodes(0L, foldersByParent, checklistByFolder);
@@ -929,8 +1357,8 @@ public class ArtifactService {
                 .toList();
     }
 
-    private List<ArtifactNodeDto> buildNodeTree(Long artifactId) {
-        List<ArtifactNode> nodes = nodeRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId);
+    private List<ArtifactNodeDto> buildNodeTree(Long versionId) {
+        List<ArtifactNode> nodes = nodeRepository.findByVersionIdOrderByOrderIndexAsc(versionId);
         Map<Long, List<ArtifactNode>> byParent = nodes.stream()
                 .collect(Collectors.groupingBy(n -> n.getParentId() == null ? 0L : n.getParentId()));
         return buildChildren(0L, byParent);
@@ -952,8 +1380,10 @@ public class ArtifactService {
     }
 
     private ArtifactSummaryDto toSummary(Artifact a, Map<Long, String> stepNames) {
-        int fileCount = (int) nodeRepository.findByArtifactIdOrderByOrderIndexAsc(a.getId()).stream()
-                .filter(n -> !n.isFolder()).count();
+        int fileCount = versionRepository.findByArtifactIdAndIsCurrentTrue(a.getId())
+                .map(v -> nodeRepository.findByVersionIdOrderByOrderIndexAsc(v.getId()).stream()
+                        .filter(n -> !n.isFolder()).count())
+                .orElse(0L).intValue();
         return new ArtifactSummaryDto(a.getId(), a.getName(), a.getEdiRef(), a.getCurrentStepId(),
                 a.getCurrentStepId() == null ? null : stepNames.get(a.getCurrentStepId()),
                 a.getTemplateId(), fileCount, a.getCreatedAt(), a.getUpdatedAt());
@@ -977,11 +1407,20 @@ public class ArtifactService {
         return node;
     }
 
-    private void validateParent(Long artifactId, Long parentId) {
+    /** Like {@link #requireNode} but also asserts the node belongs to the given (current) version. */
+    private ArtifactNode requireCurrentNode(Long artifactId, Long versionId, Long nodeId) {
+        ArtifactNode node = requireNode(artifactId, nodeId);
+        if (!Objects.equals(node.getVersionId(), versionId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Node is not part of the current version");
+        }
+        return node;
+    }
+
+    private void validateParent(Long artifactId, Long versionId, Long parentId) {
         if (parentId == null) {
             return;
         }
-        ArtifactNode parent = requireNode(artifactId, parentId);
+        ArtifactNode parent = requireCurrentNode(artifactId, versionId, parentId);
         if (!parent.isFolder()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Parent must be a folder");
         }
@@ -1036,9 +1475,9 @@ public class ArtifactService {
     }
 
     /** Ensures the name is unique within its parent folder, appending " (n)" before the extension if needed. */
-    private String uniqueName(Long artifactId, Long parentId, String desired, Long excludeNodeId) {
-        java.util.Set<String> taken = nodeRepository.findByParentIdOrderByOrderIndexAsc(parentId).stream()
-                .filter(n -> artifactId.equals(n.getArtifactId()))
+    private String uniqueName(Long versionId, Long parentId, String desired, Long excludeNodeId) {
+        java.util.Set<String> taken = nodeRepository.findByVersionIdOrderByOrderIndexAsc(versionId).stream()
+                .filter(n -> java.util.Objects.equals(n.getParentId(), parentId))
                 .filter(n -> !n.getId().equals(excludeNodeId))
                 .map(n -> n.getName().toLowerCase())
                 .collect(Collectors.toSet());

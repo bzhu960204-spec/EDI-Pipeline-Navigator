@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Key } from 'react';
 import {
   App as AntApp,
+  Alert,
   Breadcrumb,
   Button,
   Card,
@@ -31,6 +32,7 @@ import type { DataNode, TreeProps } from 'antd/es/tree';
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
+  DownOutlined,
   DownloadOutlined,
   EditOutlined,
   FileOutlined,
@@ -38,6 +40,7 @@ import {
   FolderAddOutlined,
   FolderOpenOutlined,
   FolderOutlined,
+  HistoryOutlined,
   HomeOutlined,
   InboxOutlined,
   ScheduleOutlined,
@@ -66,12 +69,16 @@ import {
   updateArtifact,
   updateNodeNotes,
   uploadFiles,
+  fetchVersionDetail,
   type ArtifactNode,
+  type ArtifactVersion,
 } from '../../api/artifacts';
 import { extractErrorMessage } from '../../api/client';
 import { AdvanceStatusModal } from './AdvanceStatusModal';
 import { ChecklistTab } from './ChecklistTab';
 import { LogsPanel } from './LogsPanel';
+import { UploadVersionModal } from './UploadVersionModal';
+import { VersionHistoryModal } from './VersionHistoryModal';
 
 function formatBytes(bytes: number): string {
   if (!bytes) return '0 B';
@@ -183,12 +190,24 @@ export function ArtifactDetailPage() {
   const [expandedKeys, setExpandedKeys] = useState<Key[]>([ROOT_KEY]);
   const [fileFilter, setFileFilter] = useState('');
   const [includeSubfolders, setIncludeSubfolders] = useState(true);
+  const [uploadVersionOpen, setUploadVersionOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [viewVersion, setViewVersion] = useState<ArtifactVersion | null>(null);
 
   const { data: artifact, isLoading } = useQuery({
     queryKey: ['artifacts', artifactId],
     queryFn: () => fetchArtifact(artifactId),
     enabled: Number.isFinite(artifactId),
   });
+  const viewVersionId = viewVersion?.id ?? null;
+  const { data: versionDetail } = useQuery({
+    queryKey: ['artifacts', artifactId, 'version', viewVersionId],
+    queryFn: () => fetchVersionDetail(artifactId, viewVersionId as number),
+    enabled: Number.isFinite(artifactId) && viewVersionId != null,
+  });
+  // Node tree shown: the historical version when browsing history, otherwise the current artifact.
+  const displayArtifact = viewVersionId != null ? versionDetail : artifact;
+  const readOnly = viewVersionId != null;
   const { data: history = [] } = useQuery({
     queryKey: ['artifacts', artifactId, 'history'],
     queryFn: () => fetchHistory(artifactId),
@@ -202,19 +221,19 @@ export function ArtifactDetailPage() {
 
   const treeData = useMemo<DataNode[]>(
     () =>
-      artifact
+      displayArtifact
         ? [
             {
               key: ROOT_KEY,
               icon: <HomeOutlined />,
-              title: `${artifact.name} (top level)`,
-              children: toTreeData(artifact.nodes),
+              title: `${displayArtifact.name} (top level)`,
+              children: toTreeData(displayArtifact.nodes),
             },
           ]
         : [],
-    [artifact],
+    [displayArtifact],
   );
-  const selectedNode = artifact && selectedId != null ? findNode(artifact.nodes, selectedId) : null;
+  const selectedNode = displayArtifact && selectedId != null ? findNode(displayArtifact.nodes, selectedId) : null;
 
   // Folder that uploads/new-folders target: the selected folder, a selected file's parent, or root.
   const targetFolderId = selectedNode
@@ -228,12 +247,12 @@ export function ArtifactDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['artifacts'] });
   };
 
-  const byId = useMemo(() => buildIndex(artifact?.nodes ?? []), [artifact]);
+  const byId = useMemo(() => buildIndex(displayArtifact?.nodes ?? []), [displayArtifact]);
 
   // Files shown in the right-hand list for the current target folder.
   const flatFiles = useMemo<FlatFile[]>(
-    () => (artifact ? collectFiles(artifact.nodes, byId, targetFolderId, includeSubfolders) : []),
-    [artifact, byId, targetFolderId, includeSubfolders],
+    () => (displayArtifact ? collectFiles(displayArtifact.nodes, byId, targetFolderId, includeSubfolders) : []),
+    [displayArtifact, byId, targetFolderId, includeSubfolders],
   );
   const filteredFiles = useMemo(() => {
     const q = fileFilter.trim().toLowerCase();
@@ -390,10 +409,27 @@ export function ArtifactDetailPage() {
   const handleExport = async () => {
     if (!artifact) return;
     try {
-      await exportArtifact(artifactId, `${artifact.ediRef || artifact.name}.zip`);
+      await exportArtifact(artifactId, `${artifact.name}.zip`);
     } catch (e) {
       message.error(extractErrorMessage(e, 'Export failed'));
     }
+  };
+
+  const confirmDeleteArtifact = () => {
+    Modal.confirm({
+      title: 'Delete this artifact?',
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      onOk: () => removeArtifact.mutateAsync(),
+    });
+  };
+
+  const handleHeaderAction: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'newVersion') setUploadVersionOpen(true);
+    else if (key === 'history') setHistoryOpen(true);
+    else if (key === 'export') handleExport();
+    else if (key === 'saveTemplate') setSaveTemplateOpen(true);
+    else if (key === 'delete') confirmDeleteArtifact();
   };
 
   const openRename = (node: ArtifactNode) => {
@@ -422,7 +458,11 @@ export function ArtifactDetailPage() {
     });
   };
 
-  const contextMenuItems: MenuProps['items'] = menuNode
+  const contextMenuItems: MenuProps['items'] = readOnly
+    ? menuNode && !menuNode.folder
+      ? [{ key: 'download', icon: <DownloadOutlined />, label: 'Download' }]
+      : []
+    : menuNode
     ? menuNode.folder
       ? [
           { key: 'rename', icon: <EditOutlined />, label: 'Rename' },
@@ -472,7 +512,7 @@ export function ArtifactDetailPage() {
   };
 
   const handleDrop: TreeProps['onDrop'] = (info) => {
-    if (!artifact) return;
+    if (!displayArtifact) return;
     const dragKey = info.dragNode.key;
     if (dragKey === ROOT_KEY) return;
     const dropKey = info.node.key;
@@ -480,7 +520,7 @@ export function ArtifactDetailPage() {
     if (dropKey === ROOT_KEY) {
       targetParentId = null;
     } else {
-      const dropNode = findNode(artifact.nodes, Number(dropKey));
+      const dropNode = findNode(displayArtifact.nodes, Number(dropKey));
       if (!dropNode) return;
       // Dropped directly onto a folder → move inside it; otherwise use the drop target's parent.
       targetParentId = !info.dropToGap && dropNode.folder ? dropNode.id : dropNode.parentId;
@@ -490,13 +530,15 @@ export function ArtifactDetailPage() {
 
   if (isLoading) return <Spin />;
   if (!artifact) return <Empty description="Artifact not found" />;
+  if (readOnly && !displayArtifact) return <Spin />;
 
+  const nodeSource = displayArtifact ?? artifact;
   const targetFolderName = targetFolderId
-    ? findNode(artifact.nodes, targetFolderId)?.name ?? 'root'
+    ? findNode(nodeSource.nodes, targetFolderId)?.name ?? 'root'
     : 'root (top level)';
 
   const folderParentName = folderParentId
-    ? findNode(artifact.nodes, folderParentId)?.name ?? 'root'
+    ? findNode(nodeSource.nodes, folderParentId)?.name ?? 'root'
     : 'root (top level)';
 
   // Breadcrumb from artifact root down to the currently selected node.
@@ -560,20 +602,24 @@ export function ArtifactDetailPage() {
           <Tooltip title="Download">
             <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(r.node)} />
           </Tooltip>
-          <Tooltip title="Notes">
-            <Button
-              type="text"
-              size="small"
-              icon={<FileTextOutlined style={r.node.notes ? { color: '#1677ff' } : undefined} />}
-              onClick={() => openNotes(r.node)}
-            />
-          </Tooltip>
-          <Tooltip title="Rename">
-            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openRename(r.node)} />
-          </Tooltip>
-          <Popconfirm title="Delete this file?" onConfirm={() => removeNode.mutate(r.node.id)}>
-            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          {readOnly ? null : (
+            <>
+              <Tooltip title="Notes">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<FileTextOutlined style={r.node.notes ? { color: '#1677ff' } : undefined} />}
+                  onClick={() => openNotes(r.node)}
+                />
+              </Tooltip>
+              <Tooltip title="Rename">
+                <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openRename(r.node)} />
+              </Tooltip>
+              <Popconfirm title="Delete this file?" onConfirm={() => removeNode.mutate(r.node.id)}>
+                <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+              </Popconfirm>
+            </>
+          )}
         </Space>
       ),
     },
@@ -581,6 +627,19 @@ export function ArtifactDetailPage() {
 
   const filesTab = (
     <div>
+      {readOnly && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`Viewing version v${displayArtifact?.versionNumber} (read-only). Switch back to the current version to make changes.`}
+          action={
+            <Button size="small" onClick={() => setViewVersion(null)}>
+              Back to current
+            </Button>
+          }
+        />
+      )}
       <Breadcrumb items={breadcrumbItems} style={{ marginBottom: 12 }} />
       <Row gutter={16}>
         <Col xs={24} lg={9}>
@@ -588,13 +647,15 @@ export function ArtifactDetailPage() {
             size="small"
             title="Folders"
             extra={
-              <Button size="small" icon={<FolderAddOutlined />} onClick={() => openNewFolder(targetFolderId)}>
-                New folder
-              </Button>
+              readOnly ? null : (
+                <Button size="small" icon={<FolderAddOutlined />} onClick={() => openNewFolder(targetFolderId)}>
+                  New folder
+                </Button>
+              )
             }
           >
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              Right-click a node for actions · drag to move
+              {readOnly ? 'Read-only historical version' : 'Right-click a node for actions · drag to move'}
             </Typography.Text>
             <Dropdown menu={{ items: contextMenuItems, onClick: handleMenuClick }} trigger={['contextMenu']}>
               <div style={{ maxHeight: 480, overflow: 'auto', marginTop: 8 }}>
@@ -602,7 +663,7 @@ export function ArtifactDetailPage() {
                   showIcon
                   showLine
                   blockNode
-                  draggable={{ icon: false, nodeDraggable: (node) => node.key !== ROOT_KEY }}
+                  draggable={readOnly ? false : { icon: false, nodeDraggable: (node) => node.key !== ROOT_KEY }}
                   treeData={treeData}
                   expandedKeys={expandedKeys}
                   onExpand={(keys) => setExpandedKeys(keys)}
@@ -613,19 +674,21 @@ export function ArtifactDetailPage() {
                   }}
                   onRightClick={({ node }) => {
                     const key = node.key;
-                    setMenuNode(key === ROOT_KEY ? null : findNode(artifact.nodes, Number(key)));
+                    setMenuNode(key === ROOT_KEY ? null : findNode(nodeSource.nodes, Number(key)));
                   }}
                   onDrop={handleDrop}
                 />
               </div>
             </Dropdown>
 
-            <Upload.Dragger {...uploadProps} style={{ marginTop: 16 }}>
-              <p className="ant-upload-drag-icon">
-                <InboxOutlined />
-              </p>
-              <p className="ant-upload-text">Drag files here to upload into “{targetFolderName}”</p>
-            </Upload.Dragger>
+            {readOnly ? null : (
+              <Upload.Dragger {...uploadProps} style={{ marginTop: 16 }}>
+                <p className="ant-upload-drag-icon">
+                  <InboxOutlined />
+                </p>
+                <p className="ant-upload-text">Drag files here to upload into “{targetFolderName}”</p>
+              </Upload.Dragger>
+            )}
           </Card>
         </Col>
 
@@ -639,11 +702,13 @@ export function ArtifactDetailPage() {
               </Space>
             }
             extra={
-              <Upload {...uploadProps}>
-                <Button size="small" type="primary" icon={<UploadOutlined />}>
-                  Upload
-                </Button>
-              </Upload>
+              readOnly ? null : (
+                <Upload {...uploadProps}>
+                  <Button size="small" type="primary" icon={<UploadOutlined />}>
+                    Upload
+                  </Button>
+                </Upload>
+              )
             }
           >
             <Space style={{ marginBottom: 12 }} wrap>
@@ -742,8 +807,15 @@ export function ArtifactDetailPage() {
 
   return (
     <div>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
-        <Space>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          marginBottom: 16,
+        }}
+      >
+        <Space wrap size={8} style={{ flex: 1, minWidth: 0 }}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/artifacts')} />
           <Typography.Title level={4} style={{ margin: 0 }}>
             {artifact.name}
@@ -760,50 +832,67 @@ export function ArtifactDetailPage() {
               }}
             />
           </Tooltip>
+          {readOnly ? (
+            <Tag color="gold">viewing v{displayArtifact?.versionNumber}</Tag>
+          ) : (
+            <Tag color="geekblue">v{artifact.versionNumber ?? 1} · current</Tag>
+          )}
           {artifact.currentStepName ? (
             <Tag color="blue">{artifact.currentStepName}</Tag>
           ) : (
             <Tag>Not started</Tag>
           )}
         </Space>
-        <Space>
-          <Button icon={<DownloadOutlined />} onClick={handleExport}>
-            Export ZIP
+        <Dropdown
+          trigger={['click']}
+          menu={{
+            onClick: handleHeaderAction,
+            items: [
+              { key: 'newVersion', icon: <UploadOutlined />, label: 'New version' },
+              { key: 'history', icon: <HistoryOutlined />, label: 'History' },
+              { key: 'export', icon: <DownloadOutlined />, label: 'Export ZIP' },
+              { key: 'saveTemplate', icon: <SaveOutlined />, label: 'Save as template' },
+              { type: 'divider' },
+              { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true },
+            ],
+          }}
+        >
+          <Button type="primary" style={{ flexShrink: 0 }}>
+            <Space size={4}>
+              Actions
+              <DownOutlined />
+            </Space>
           </Button>
-          <Button icon={<SaveOutlined />} onClick={() => setSaveTemplateOpen(true)}>
-            Save as template
-          </Button>
-          <Popconfirm title="Delete this artifact?" onConfirm={() => removeArtifact.mutate()}>
-            <Button danger icon={<DeleteOutlined />}>
-              Delete
-            </Button>
-          </Popconfirm>
-        </Space>
-      </Row>
+        </Dropdown>
+      </div>
 
       <Tabs
         defaultActiveKey="files"
         items={[
           { key: 'files', label: 'Files', children: filesTab },
-          {
-            key: 'checklist',
-            label: (
-              <Space size={6}>
-                <ScheduleOutlined />
-                Checklist
-                {checklist && checklist.summary.mandatoryTotal > 0 && (
-                  <Tag
-                    color={checklist.summary.complete ? 'success' : 'warning'}
-                    style={{ marginInlineEnd: 0 }}
-                  >
-                    {checklist.summary.mandatorySatisfied}/{checklist.summary.mandatoryTotal}
-                  </Tag>
-                )}
-              </Space>
-            ),
-            children: <ChecklistTab artifactId={artifactId} nodes={artifact.nodes} />,
-          },
-          { key: 'workflow', label: 'Workflow & Logs', children: workflowTab },
+          ...(readOnly
+            ? []
+            : [
+                {
+                  key: 'checklist',
+                  label: (
+                    <Space size={6}>
+                      <ScheduleOutlined />
+                      Checklist
+                      {checklist && checklist.summary.mandatoryTotal > 0 && (
+                        <Tag
+                          color={checklist.summary.complete ? 'success' : 'warning'}
+                          style={{ marginInlineEnd: 0 }}
+                        >
+                          {checklist.summary.mandatorySatisfied}/{checklist.summary.mandatoryTotal}
+                        </Tag>
+                      )}
+                    </Space>
+                  ),
+                  children: <ChecklistTab artifactId={artifactId} nodes={artifact.nodes} />,
+                },
+                { key: 'workflow', label: 'Workflow & Logs', children: workflowTab },
+              ]),
         ]}
       />
 
@@ -937,6 +1026,29 @@ export function ArtifactDetailPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <UploadVersionModal
+        open={uploadVersionOpen}
+        artifactId={artifactId}
+        onCancel={() => setUploadVersionOpen(false)}
+        onCreated={() => {
+          setUploadVersionOpen(false);
+          setViewVersion(null);
+        }}
+      />
+
+      <VersionHistoryModal
+        open={historyOpen}
+        artifactId={artifactId}
+        artifactName={artifact.name}
+        viewingVersionId={viewVersionId}
+        onCancel={() => setHistoryOpen(false)}
+        onView={(v) => {
+          setViewVersion(v);
+          setSelectedId(null);
+          setExpandedKeys([ROOT_KEY]);
+        }}
+      />
     </div>
   );
 }

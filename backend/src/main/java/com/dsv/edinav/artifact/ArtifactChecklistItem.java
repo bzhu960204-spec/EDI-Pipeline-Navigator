@@ -19,6 +19,9 @@ public class ArtifactChecklistItem {
     @Column(nullable = false)
     private Long artifactId;
 
+    /** Version snapshot this item belongs to; nullable only for legacy rows before backfill. */
+    private Long versionId;
+
     /** Folder this item belongs to; null means the artifact root level. */
     private Long folderNodeId;
 
@@ -43,6 +46,9 @@ public class ArtifactChecklistItem {
 
     public Long getArtifactId() { return artifactId; }
     public void setArtifactId(Long artifactId) { this.artifactId = artifactId; }
+
+    public Long getVersionId() { return versionId; }
+    public void setVersionId(Long versionId) { this.versionId = versionId; }
 
     public Long getFolderNodeId() { return folderNodeId; }
     public void setFolderNodeId(Long folderNodeId) { this.folderNodeId = folderNodeId; }

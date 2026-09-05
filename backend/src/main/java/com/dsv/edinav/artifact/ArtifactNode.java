@@ -21,6 +21,9 @@ public class ArtifactNode {
     @Column(nullable = false)
     private Long artifactId;
 
+    /** Version snapshot this node belongs to; nullable only for legacy rows before backfill. */
+    private Long versionId;
+
     private Long parentId;
 
     @Column(nullable = false, length = 260)
@@ -41,6 +44,10 @@ public class ArtifactNode {
     @Column(length = 150)
     private String contentType;
 
+    /** SHA-256 hex of the file content; null for folders or legacy files not yet hashed. */
+    @Column(length = 64)
+    private String hash;
+
     /** Freeform user notes about this file/folder (e.g. what changed, what still needs work). */
     @Column(columnDefinition = "TEXT")
     private String notes;
@@ -53,6 +60,9 @@ public class ArtifactNode {
 
     public Long getArtifactId() { return artifactId; }
     public void setArtifactId(Long artifactId) { this.artifactId = artifactId; }
+
+    public Long getVersionId() { return versionId; }
+    public void setVersionId(Long versionId) { this.versionId = versionId; }
 
     public Long getParentId() { return parentId; }
     public void setParentId(Long parentId) { this.parentId = parentId; }
@@ -74,6 +84,9 @@ public class ArtifactNode {
 
     public String getContentType() { return contentType; }
     public void setContentType(String contentType) { this.contentType = contentType; }
+
+    public String getHash() { return hash; }
+    public void setHash(String hash) { this.hash = hash; }
 
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
