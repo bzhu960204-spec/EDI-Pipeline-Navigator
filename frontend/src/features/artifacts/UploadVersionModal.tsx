@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
-import { App as AntApp, Alert, Empty, Input, List, Modal, Space, Spin, Tag, Typography, Upload } from 'antd';
-import { InboxOutlined } from '@ant-design/icons';
+import { useEffect, useMemo, useState, type Key } from 'react';
+import { App as AntApp, Alert, Empty, Input, Modal, Space, Spin, Switch, Tag, Tree, Typography, Upload } from 'antd';
+import { InboxOutlined, FileOutlined, FolderOutlined } from '@ant-design/icons';
+import type { DataNode } from 'antd/es/tree';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   analyzeVersionUpload,
@@ -23,43 +24,137 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function DiffList({ title, color, entries, showOld }: Readonly<{
-  title: string;
-  color: string;
-  entries: DiffEntry[];
-  showOld?: boolean;
-}>) {
-  if (entries.length === 0) return null;
+type DiffStatus = 'added' | 'modified' | 'deleted' | 'unchanged';
+
+const STATUS_META: Record<DiffStatus, { color: string; label: string }> = {
+  added: { color: 'green', label: 'Added' },
+  modified: { color: 'orange', label: 'Modified' },
+  deleted: { color: 'red', label: 'Deleted' },
+  unchanged: { color: 'default', label: 'Unchanged' },
+};
+
+interface DiffFile {
+  path: string;
+  name: string;
+  status: DiffStatus;
+  sizeBytes: number;
+  oldSizeBytes: number;
+}
+
+interface DiffTreeNode {
+  name: string;
+  path: string;
+  children: Map<string, DiffTreeNode>;
+  counts: Record<DiffStatus, number>;
+  file?: DiffFile;
+}
+
+function emptyCounts(): Record<DiffStatus, number> {
+  return { added: 0, modified: 0, deleted: 0, unchanged: 0 };
+}
+
+/** Folds the four flat diff lists into a single path-keyed folder/file tree. */
+function buildDiffTree(diff: VersionDiff): DiffTreeNode {
+  const root: DiffTreeNode = { name: '', path: '', children: new Map(), counts: emptyCounts() };
+  const addEntry = (entry: DiffEntry, status: DiffStatus) => {
+    const segments = entry.path.split('/').filter(Boolean);
+    let node = root;
+    segments.forEach((seg, idx) => {
+      const isLeaf = idx === segments.length - 1;
+      let child = node.children.get(seg);
+      if (!child) {
+        child = {
+          name: seg,
+          path: segments.slice(0, idx + 1).join('/'),
+          children: new Map(),
+          counts: emptyCounts(),
+        };
+        node.children.set(seg, child);
+      }
+      child.counts[status] += 1;
+      if (isLeaf) {
+        child.file = {
+          path: entry.path,
+          name: entry.name,
+          status,
+          sizeBytes: entry.sizeBytes,
+          oldSizeBytes: entry.oldSizeBytes,
+        };
+      }
+      node = child;
+    });
+  };
+  diff.added.forEach((e) => addEntry(e, 'added'));
+  diff.modified.forEach((e) => addEntry(e, 'modified'));
+  diff.deleted.forEach((e) => addEntry(e, 'deleted'));
+  diff.unchanged.forEach((e) => addEntry(e, 'unchanged'));
+  return root;
+}
+
+function fileTitle(file: DiffFile) {
+  const meta = STATUS_META[file.status];
+  const greyed = file.status === 'unchanged';
   return (
-    <div style={{ marginBottom: 12 }}>
-      <Space style={{ marginBottom: 4 }}>
-        <Tag color={color}>{title}</Tag>
+    <Space size={6} style={{ width: '100%', justifyContent: 'space-between', opacity: greyed ? 0.55 : 1 }}>
+      <span title={file.path}>
+        <FileOutlined style={{ marginInlineEnd: 6 }} />
+        <b>{file.name}</b>
+      </span>
+      <Space size={6}>
+        {file.status === 'unchanged' ? null : <Tag color={meta.color}>{meta.label}</Tag>}
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {entries.length} file{entries.length === 1 ? '' : 's'}
+          {file.status === 'modified' && file.oldSizeBytes > 0 ? `${formatBytes(file.oldSizeBytes)} → ` : ''}
+          {formatBytes(file.sizeBytes)}
         </Typography.Text>
       </Space>
-      <List
-        size="small"
-        bordered
-        dataSource={entries}
-        style={{ maxHeight: 160, overflow: 'auto' }}
-        renderItem={(e) => (
-          <List.Item>
-            <Space size={6} style={{ width: '100%', justifyContent: 'space-between' }}>
-              <span title={e.path}>
-                {e.folder ? `${e.folder}/` : ''}
-                <b>{e.name}</b>
-              </span>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                {showOld && e.oldSizeBytes > 0 ? `${formatBytes(e.oldSizeBytes)} → ` : ''}
-                {formatBytes(e.sizeBytes)}
-              </Typography.Text>
-            </Space>
-          </List.Item>
-        )}
-      />
-    </div>
+    </Space>
   );
+}
+
+function folderTitle(node: DiffTreeNode) {
+  const { counts } = node;
+  return (
+    <Space size={4}>
+      <FolderOutlined />
+      <span>{node.name}</span>
+      {counts.added > 0 ? <Tag color="green">{counts.added}</Tag> : null}
+      {counts.modified > 0 ? <Tag color="orange">{counts.modified}</Tag> : null}
+      {counts.deleted > 0 ? <Tag color="red">{counts.deleted}</Tag> : null}
+    </Space>
+  );
+}
+
+function childToDataNode(child: DiffTreeNode, showUnchanged: boolean): DataNode | null {
+  if (child.children.size === 0 && child.file) {
+    if (child.file.status === 'unchanged' && !showUnchanged) return null;
+    return { key: `f:${child.path}`, title: fileTitle(child.file), selectable: false };
+  }
+  const hasChanges = child.counts.added + child.counts.modified + child.counts.deleted > 0;
+  if (!showUnchanged && !hasChanges) return null;
+  const grandChildren = toDataNodes(child, showUnchanged);
+  if (grandChildren.length === 0) return null;
+  return { key: `d:${child.path}`, title: folderTitle(child), selectable: false, children: grandChildren };
+}
+
+function toDataNodes(node: DiffTreeNode, showUnchanged: boolean): DataNode[] {
+  const children = [...node.children.values()].sort((a, b) => {
+    const aFolder = a.children.size > 0;
+    const bFolder = b.children.size > 0;
+    if (aFolder !== bFolder) return aFolder ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  });
+  return children
+    .map((child) => childToDataNode(child, showUnchanged))
+    .filter((n): n is DataNode => n !== null);
+}
+
+function collectFolderKeys(nodes: DataNode[], acc: Key[]): void {
+  for (const n of nodes) {
+    if (n.children && n.children.length > 0) {
+      acc.push(n.key);
+      collectFolderKeys(n.children, acc);
+    }
+  }
 }
 
 export function UploadVersionModal({ open, artifactId, onCancel, onCreated }: Readonly<UploadVersionModalProps>) {
@@ -69,6 +164,8 @@ export function UploadVersionModal({ open, artifactId, onCancel, onCreated }: Re
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [diff, setDiff] = useState<VersionDiff | null>(null);
   const [comment, setComment] = useState('');
+  const [showUnchanged, setShowUnchanged] = useState(false);
+  const [expandedKeys, setExpandedKeys] = useState<Key[]>([]);
 
   useEffect(() => {
     if (open) {
@@ -76,8 +173,20 @@ export function UploadVersionModal({ open, artifactId, onCancel, onCreated }: Re
       setAnalyzeError(null);
       setDiff(null);
       setComment('');
+      setShowUnchanged(false);
     }
   }, [open]);
+
+  const treeData = useMemo(
+    () => (diff ? toDataNodes(buildDiffTree(diff), showUnchanged) : []),
+    [diff, showUnchanged],
+  );
+
+  useEffect(() => {
+    const keys: Key[] = [];
+    collectFolderKeys(treeData, keys);
+    setExpandedKeys(keys);
+  }, [treeData]);
 
   const handleFile = async (file: File) => {
     setAnalyzing(true);
@@ -151,20 +260,41 @@ export function UploadVersionModal({ open, artifactId, onCancel, onCreated }: Re
 
       {diff ? (
         <div style={{ marginTop: 16 }}>
-          <Space style={{ marginBottom: 12 }} wrap>
-            <Tag color="green">{diff.addedCount} added</Tag>
-            <Tag color="orange">{diff.modifiedCount} modified</Tag>
-            <Tag color="red">{diff.deletedCount} deleted</Tag>
-            <Tag>{diff.unchangedCount} unchanged</Tag>
-          </Space>
-          {noChanges ? (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
+            <Space wrap>
+              <Tag color="green">{diff.addedCount} added</Tag>
+              <Tag color="orange">{diff.modifiedCount} modified</Tag>
+              <Tag color="red">{diff.deletedCount} deleted</Tag>
+              <Tag>{diff.unchangedCount} unchanged</Tag>
+            </Space>
+            <Space size={6}>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Show unchanged
+              </Typography.Text>
+              <Switch size="small" checked={showUnchanged} onChange={setShowUnchanged} />
+            </Space>
+          </div>
+          {noChanges && !showUnchanged ? (
             <Alert type="info" showIcon message="No file changes detected in this upload." />
           ) : (
-            <>
-              <DiffList title="Added" color="green" entries={diff.added} />
-              <DiffList title="Modified" color="orange" entries={diff.modified} showOld />
-              <DiffList title="Deleted" color="red" entries={diff.deleted} />
-            </>
+            <Tree
+              treeData={treeData}
+              selectable={false}
+              showIcon={false}
+              height={260}
+              expandedKeys={expandedKeys}
+              onExpand={(keys) => setExpandedKeys(keys)}
+              style={{ marginBottom: 12 }}
+            />
           )}
           <Typography.Text strong>Version comment</Typography.Text>
           <Input.TextArea
