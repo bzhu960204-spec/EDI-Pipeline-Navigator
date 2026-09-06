@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type Key } from 'react';
 import { App as AntApp, Alert, Empty, Input, Modal, Space, Spin, Switch, Tag, Tree, Typography, Upload } from 'antd';
-import { InboxOutlined, FileOutlined, FolderOutlined } from '@ant-design/icons';
+import { InboxOutlined, FileOutlined, FolderOutlined, CheckOutlined } from '@ant-design/icons';
 import type { DataNode } from 'antd/es/tree';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -32,6 +32,16 @@ const STATUS_META: Record<DiffStatus, { color: string; label: string }> = {
   deleted: { color: 'red', label: 'Deleted' },
   unchanged: { color: 'default', label: 'Unchanged' },
 };
+
+/** Statuses exposed as clickable filter chips. `unchanged` is controlled by its own toggle instead. */
+const CHANGE_STATUSES: DiffStatus[] = ['added', 'modified', 'deleted'];
+
+function toggleStatus(prev: Set<DiffStatus>, status: DiffStatus): Set<DiffStatus> {
+  const next = new Set(prev);
+  if (next.has(status)) next.delete(status);
+  else next.add(status);
+  return next;
+}
 
 interface DiffFile {
   path: string;
@@ -124,19 +134,24 @@ function folderTitle(node: DiffTreeNode) {
   );
 }
 
-function childToDataNode(child: DiffTreeNode, showUnchanged: boolean): DataNode | null {
+/** A file is visible when its status passes the active chip filter (empty = all changes) and, for unchanged, the toggle. */
+function fileVisible(file: DiffFile, active: Set<DiffStatus>, showUnchanged: boolean): boolean {
+  if (file.status === 'unchanged') return showUnchanged;
+  return active.size === 0 || active.has(file.status);
+}
+
+function childToDataNode(child: DiffTreeNode, active: Set<DiffStatus>, showUnchanged: boolean): DataNode | null {
   if (child.children.size === 0 && child.file) {
-    if (child.file.status === 'unchanged' && !showUnchanged) return null;
-    return { key: `f:${child.path}`, title: fileTitle(child.file), selectable: false };
+    return fileVisible(child.file, active, showUnchanged)
+      ? { key: `f:${child.path}`, title: fileTitle(child.file), selectable: false }
+      : null;
   }
-  const hasChanges = child.counts.added + child.counts.modified + child.counts.deleted > 0;
-  if (!showUnchanged && !hasChanges) return null;
-  const grandChildren = toDataNodes(child, showUnchanged);
+  const grandChildren = toDataNodes(child, active, showUnchanged);
   if (grandChildren.length === 0) return null;
   return { key: `d:${child.path}`, title: folderTitle(child), selectable: false, children: grandChildren };
 }
 
-function toDataNodes(node: DiffTreeNode, showUnchanged: boolean): DataNode[] {
+function toDataNodes(node: DiffTreeNode, active: Set<DiffStatus>, showUnchanged: boolean): DataNode[] {
   const children = [...node.children.values()].sort((a, b) => {
     const aFolder = a.children.size > 0;
     const bFolder = b.children.size > 0;
@@ -144,7 +159,7 @@ function toDataNodes(node: DiffTreeNode, showUnchanged: boolean): DataNode[] {
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
   });
   return children
-    .map((child) => childToDataNode(child, showUnchanged))
+    .map((child) => childToDataNode(child, active, showUnchanged))
     .filter((n): n is DataNode => n !== null);
 }
 
@@ -165,6 +180,7 @@ export function UploadVersionModal({ open, artifactId, onCancel, onCreated }: Re
   const [diff, setDiff] = useState<VersionDiff | null>(null);
   const [comment, setComment] = useState('');
   const [showUnchanged, setShowUnchanged] = useState(false);
+  const [activeStatuses, setActiveStatuses] = useState<Set<DiffStatus>>(new Set());
   const [expandedKeys, setExpandedKeys] = useState<Key[]>([]);
 
   useEffect(() => {
@@ -174,12 +190,13 @@ export function UploadVersionModal({ open, artifactId, onCancel, onCreated }: Re
       setDiff(null);
       setComment('');
       setShowUnchanged(false);
+      setActiveStatuses(new Set());
     }
   }, [open]);
 
   const treeData = useMemo(
-    () => (diff ? toDataNodes(buildDiffTree(diff), showUnchanged) : []),
-    [diff, showUnchanged],
+    () => (diff ? toDataNodes(buildDiffTree(diff), activeStatuses, showUnchanged) : []),
+    [diff, activeStatuses, showUnchanged],
   );
 
   useEffect(() => {
@@ -271,9 +288,32 @@ export function UploadVersionModal({ open, artifactId, onCancel, onCreated }: Re
             }}
           >
             <Space wrap>
-              <Tag color="green">{diff.addedCount} added</Tag>
-              <Tag color="orange">{diff.modifiedCount} modified</Tag>
-              <Tag color="red">{diff.deletedCount} deleted</Tag>
+              {CHANGE_STATUSES.map((status) => {
+                const meta = STATUS_META[status];
+                const counts: Record<string, number> = {
+                  added: diff.addedCount,
+                  modified: diff.modifiedCount,
+                  deleted: diff.deletedCount,
+                };
+                const count = counts[status];
+                const selected = activeStatuses.has(status);
+                return (
+                  <Tag
+                    key={status}
+                    color={meta.color}
+                    icon={selected ? <CheckOutlined /> : undefined}
+                    onClick={() => setActiveStatuses((prev) => toggleStatus(prev, status))}
+                    style={{
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      fontWeight: selected ? 600 : 400,
+                      boxShadow: selected ? '0 0 0 1px currentColor inset' : undefined,
+                    }}
+                  >
+                    {count} {status}
+                  </Tag>
+                );
+              })}
               <Tag>{diff.unchangedCount} unchanged</Tag>
             </Space>
             <Space size={6}>
@@ -283,8 +323,16 @@ export function UploadVersionModal({ open, artifactId, onCancel, onCreated }: Re
               <Switch size="small" checked={showUnchanged} onChange={setShowUnchanged} />
             </Space>
           </div>
-          {noChanges && !showUnchanged ? (
-            <Alert type="info" showIcon message="No file changes detected in this upload." />
+          {treeData.length === 0 ? (
+            <Alert
+              type="info"
+              showIcon
+              message={
+                noChanges && activeStatuses.size === 0
+                  ? 'No file changes detected in this upload.'
+                  : 'No files match the current filter.'
+              }
+            />
           ) : (
             <Tree
               treeData={treeData}

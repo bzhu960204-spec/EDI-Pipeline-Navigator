@@ -5,6 +5,8 @@ import com.dsv.edinav.artifact.dto.ArtifactDetailDto;
 import com.dsv.edinav.artifact.dto.ArtifactLogDto;
 import com.dsv.edinav.artifact.dto.ArtifactNodeDto;
 import com.dsv.edinav.artifact.dto.ArtifactSummaryDto;
+import com.dsv.edinav.artifact.dto.ArtifactVarDto;
+import com.dsv.edinav.artifact.dto.ArtifactVarTableDto;
 import com.dsv.edinav.artifact.dto.ArtifactVersionDto;
 import com.dsv.edinav.artifact.dto.ChecklistFolderDto;
 import com.dsv.edinav.artifact.dto.ChecklistSummaryDto;
@@ -20,6 +22,8 @@ import com.dsv.edinav.artifact.dto.SaveAsTemplateRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
 import com.dsv.edinav.artifact.dto.TemplateFolderDto;
 import com.dsv.edinav.artifact.dto.UpdateChecklistItemRequest;
+import com.dsv.edinav.artifact.dto.VarRequest;
+import com.dsv.edinav.artifact.dto.VarTableRequest;
 import com.dsv.edinav.artifact.dto.VersionDiffDto;
 import com.dsv.edinav.common.ApiException;
 import com.dsv.edinav.storage.FileStorageService;
@@ -71,6 +75,8 @@ public class ArtifactService {
     private final ArtifactChecklistItemRepository checklistRepository;
     private final StatusHistoryRepository historyRepository;
     private final ArtifactLogRepository logRepository;
+    private final ArtifactVarTableRepository varTableRepository;
+    private final ArtifactVarRepository varRepository;
     private final TemplateService templateService;
     private final FileStorageService storage;
     private final ImportStagingService importStaging;
@@ -84,6 +90,8 @@ public class ArtifactService {
                            ArtifactChecklistItemRepository checklistRepository,
                            StatusHistoryRepository historyRepository,
                            ArtifactLogRepository logRepository,
+                           ArtifactVarTableRepository varTableRepository,
+                           ArtifactVarRepository varRepository,
                            TemplateService templateService,
                            FileStorageService storage,
                            ImportStagingService importStaging,
@@ -96,6 +104,8 @@ public class ArtifactService {
         this.checklistRepository = checklistRepository;
         this.historyRepository = historyRepository;
         this.logRepository = logRepository;
+        this.varTableRepository = varTableRepository;
+        this.varRepository = varRepository;
         this.templateService = templateService;
         this.storage = storage;
         this.importStaging = importStaging;
@@ -185,6 +195,10 @@ public class ArtifactService {
         requireOwned(ownerId, id);
         historyRepository.deleteByArtifactId(id);
         logRepository.deleteByArtifactId(id);
+        for (ArtifactVarTable table : varTableRepository.findByArtifactId(id)) {
+            varRepository.deleteByTableId(table.getId());
+        }
+        varTableRepository.deleteAll(varTableRepository.findByArtifactId(id));
         checklistRepository.deleteByArtifactId(id);
         nodeRepository.deleteByArtifactId(id);
         versionRepository.deleteByArtifactId(id);
@@ -249,6 +263,155 @@ public class ArtifactService {
     private ArtifactLogDto toLogDto(ArtifactLog log) {
         return new ArtifactLogDto(log.getId(), log.getTitle(), log.getContent(),
                 log.getCreatedAt(), log.getUpdatedAt());
+    }
+
+    // ---------------- Variable tables (key-value store) ----------------
+
+    @Transactional(readOnly = true)
+    public List<ArtifactVarTableDto> listVarTables(Long ownerId, Long artifactId) {
+        requireOwned(ownerId, artifactId);
+        return varTableRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId).stream()
+                .map(this::toVarTableDto)
+                .toList();
+    }
+
+    @Transactional
+    public ArtifactVarTableDto createVarTable(Long ownerId, Long artifactId, VarTableRequest request) {
+        requireOwned(ownerId, artifactId);
+        String name = requireName(request.name());
+        if (varTableRepository.existsByArtifactIdAndNameIgnoreCase(artifactId, name)) {
+            throw new ApiException(HttpStatus.CONFLICT, "A table with this name already exists");
+        }
+        int nextOrder = varTableRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId).size();
+        ArtifactVarTable table = new ArtifactVarTable();
+        table.setArtifactId(artifactId);
+        table.setName(name);
+        table.setOrderIndex(nextOrder);
+        varTableRepository.save(table);
+        return toVarTableDto(table);
+    }
+
+    @Transactional
+    public ArtifactVarTableDto renameVarTable(Long ownerId, Long artifactId, Long tableId, VarTableRequest request) {
+        requireOwned(ownerId, artifactId);
+        ArtifactVarTable table = requireVarTable(artifactId, tableId);
+        String name = requireName(request.name());
+        if (varTableRepository.existsByArtifactIdAndNameIgnoreCaseAndIdNot(artifactId, name, tableId)) {
+            throw new ApiException(HttpStatus.CONFLICT, "A table with this name already exists");
+        }
+        table.setName(name);
+        varTableRepository.save(table);
+        return toVarTableDto(table);
+    }
+
+    @Transactional
+    public void deleteVarTable(Long ownerId, Long artifactId, Long tableId) {
+        requireOwned(ownerId, artifactId);
+        ArtifactVarTable table = requireVarTable(artifactId, tableId);
+        varRepository.deleteByTableId(table.getId());
+        varTableRepository.delete(table);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ArtifactVarDto> listVars(Long ownerId, Long artifactId, Long tableId) {
+        requireOwned(ownerId, artifactId);
+        requireVarTable(artifactId, tableId);
+        return varRepository.findByTableIdOrderByOrderIndexAsc(tableId).stream()
+                .map(this::toVarDto)
+                .toList();
+    }
+
+    @Transactional
+    public ArtifactVarDto createVar(Long ownerId, Long artifactId, Long tableId, VarRequest request) {
+        requireOwned(ownerId, artifactId);
+        requireVarTable(artifactId, tableId);
+        String key = requireKey(request.keyName());
+        if (varRepository.existsByTableIdAndKeyNameIgnoreCase(tableId, key)) {
+            throw new ApiException(HttpStatus.CONFLICT, "A key with this name already exists in this table");
+        }
+        int nextOrder = varRepository.findByTableIdOrderByOrderIndexAsc(tableId).size();
+        ArtifactVar entry = new ArtifactVar();
+        entry.setTableId(tableId);
+        entry.setKeyName(key);
+        entry.setValue(request.value() == null ? "" : request.value());
+        entry.setOrderIndex(nextOrder);
+        varRepository.save(entry);
+        touchVarTable(tableId);
+        return toVarDto(entry);
+    }
+
+    @Transactional
+    public ArtifactVarDto updateVar(Long ownerId, Long artifactId, Long tableId, Long varId, VarRequest request) {
+        requireOwned(ownerId, artifactId);
+        requireVarTable(artifactId, tableId);
+        ArtifactVar entry = requireVar(tableId, varId);
+        if (request.keyName() != null && !request.keyName().isBlank()) {
+            String key = requireKey(request.keyName());
+            if (varRepository.existsByTableIdAndKeyNameIgnoreCaseAndIdNot(tableId, key, varId)) {
+                throw new ApiException(HttpStatus.CONFLICT, "A key with this name already exists in this table");
+            }
+            entry.setKeyName(key);
+        }
+        if (request.value() != null) {
+            entry.setValue(request.value());
+        }
+        varRepository.save(entry);
+        touchVarTable(tableId);
+        return toVarDto(entry);
+    }
+
+    @Transactional
+    public void deleteVar(Long ownerId, Long artifactId, Long tableId, Long varId) {
+        requireOwned(ownerId, artifactId);
+        requireVarTable(artifactId, tableId);
+        ArtifactVar entry = requireVar(tableId, varId);
+        varRepository.delete(entry);
+        touchVarTable(tableId);
+    }
+
+    private void touchVarTable(Long tableId) {
+        varTableRepository.findById(tableId).ifPresent(varTableRepository::save);
+    }
+
+    private ArtifactVarTable requireVarTable(Long artifactId, Long tableId) {
+        ArtifactVarTable table = varTableRepository.findById(tableId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Table not found"));
+        if (!table.getArtifactId().equals(artifactId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Table does not belong to this artifact");
+        }
+        return table;
+    }
+
+    private ArtifactVar requireVar(Long tableId, Long varId) {
+        ArtifactVar entry = varRepository.findById(varId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Variable not found"));
+        if (!entry.getTableId().equals(tableId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Variable does not belong to this table");
+        }
+        return entry;
+    }
+
+    private String requireName(String name) {
+        if (name == null || name.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Table name is required");
+        }
+        return name.trim();
+    }
+
+    private String requireKey(String key) {
+        if (key == null || key.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Key is required");
+        }
+        return key.trim();
+    }
+
+    private ArtifactVarTableDto toVarTableDto(ArtifactVarTable table) {
+        return new ArtifactVarTableDto(table.getId(), table.getName(), table.getOrderIndex(),
+                table.getCreatedAt(), table.getUpdatedAt());
+    }
+
+    private ArtifactVarDto toVarDto(ArtifactVar entry) {
+        return new ArtifactVarDto(entry.getId(), entry.getKeyName(), entry.getValue(), entry.getOrderIndex());
     }
 
     // ---------------- Nodes ----------------

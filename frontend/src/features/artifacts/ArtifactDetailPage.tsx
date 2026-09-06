@@ -78,6 +78,7 @@ import { AdvanceStatusModal } from './AdvanceStatusModal';
 import { ChecklistTab } from './ChecklistTab';
 import { LogsPanel } from './LogsPanel';
 import { UploadVersionModal } from './UploadVersionModal';
+import { VariablesPanel } from './VariablesPanel';
 import { VersionHistoryModal } from './VersionHistoryModal';
 
 function formatBytes(bytes: number): string {
@@ -892,6 +893,7 @@ export function ArtifactDetailPage() {
                   children: <ChecklistTab artifactId={artifactId} nodes={artifact.nodes} />,
                 },
                 { key: 'workflow', label: 'Workflow & Logs', children: workflowTab },
+                { key: 'variables', label: 'Variables', children: <VariablesPanel artifactId={artifactId} /> },
               ]),
         ]}
       />
