@@ -312,6 +312,29 @@ public class ArtifactService {
         varTableRepository.delete(table);
     }
 
+    @Transactional
+    public List<ArtifactVarTableDto> reorderVarTables(Long ownerId, Long artifactId, List<Long> orderedIds) {
+        requireOwned(ownerId, artifactId);
+        List<ArtifactVarTable> tables = varTableRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId);
+        Map<Long, ArtifactVarTable> byId = tables.stream()
+                .collect(Collectors.toMap(ArtifactVarTable::getId, t -> t));
+        int order = 0;
+        for (Long id : orderedIds) {
+            ArtifactVarTable table = byId.remove(id);
+            if (table != null) {
+                table.setOrderIndex(order++);
+            }
+        }
+        for (ArtifactVarTable table : byId.values()) {
+            table.setOrderIndex(order++);
+        }
+        varTableRepository.saveAll(tables);
+        return tables.stream()
+                .sorted(Comparator.comparingInt(ArtifactVarTable::getOrderIndex))
+                .map(this::toVarTableDto)
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public List<ArtifactVarDto> listVars(Long ownerId, Long artifactId, Long tableId) {
         requireOwned(ownerId, artifactId);
@@ -367,6 +390,31 @@ public class ArtifactService {
         ArtifactVar entry = requireVar(tableId, varId);
         varRepository.delete(entry);
         touchVarTable(tableId);
+    }
+
+    @Transactional
+    public List<ArtifactVarDto> reorderVars(Long ownerId, Long artifactId, Long tableId, List<Long> orderedIds) {
+        requireOwned(ownerId, artifactId);
+        requireVarTable(artifactId, tableId);
+        List<ArtifactVar> entries = varRepository.findByTableIdOrderByOrderIndexAsc(tableId);
+        Map<Long, ArtifactVar> byId = entries.stream()
+                .collect(Collectors.toMap(ArtifactVar::getId, e -> e));
+        int order = 0;
+        for (Long id : orderedIds) {
+            ArtifactVar entry = byId.remove(id);
+            if (entry != null) {
+                entry.setOrderIndex(order++);
+            }
+        }
+        for (ArtifactVar entry : byId.values()) {
+            entry.setOrderIndex(order++);
+        }
+        varRepository.saveAll(entries);
+        touchVarTable(tableId);
+        return entries.stream()
+                .sorted(Comparator.comparingInt(ArtifactVar::getOrderIndex))
+                .map(this::toVarDto)
+                .toList();
     }
 
     private void touchVarTable(Long tableId) {

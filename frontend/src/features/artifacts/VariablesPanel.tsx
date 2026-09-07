@@ -1,5 +1,26 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  cloneElement,
+  createContext,
+  type KeyboardEvent,
+  type ReactElement,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  type DraggableSyntheticListeners,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
 import {
   App as AntApp,
   Button,
@@ -22,6 +43,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   EditOutlined,
+  HolderOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
 import {
@@ -32,6 +54,8 @@ import {
   fetchVars,
   fetchVarTables,
   renameVarTable,
+  reorderVars,
+  reorderVarTables,
   updateVar,
   type Variable,
   type VarTable,
@@ -47,6 +71,97 @@ type TableEditId = number | 'new' | null;
 
 const NEW_TAB_KEY = '__new__';
 const ADD_ROW_ID = -1;
+
+function arrayMove<T>(items: T[], from: number, to: number): T[] {
+  const next = items.slice();
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
+// Wraps an Ant tab node so it can be dragged horizontally to reorder tables.
+function DraggableTabNode({
+  id,
+  disabled,
+  children,
+}: Readonly<{ id: string; disabled: boolean; children: ReactElement }>) {
+  const { attributes, listeners, setNodeRef: setDrag, transform, isDragging } = useDraggable({
+    id,
+    disabled,
+  });
+  const { setNodeRef: setDrop, isOver } = useDroppable({ id, disabled });
+  const setRefs = (node: HTMLElement | null) => {
+    setDrag(node);
+    setDrop(node);
+  };
+  const style = {
+    ...(children.props as { style?: React.CSSProperties }).style,
+    transform: transform ? `translateX(${transform.x}px)` : undefined,
+    opacity: isDragging ? 0.6 : 1,
+    cursor: disabled ? undefined : 'grab',
+    ...(isOver && !isDragging ? { outline: '1px dashed #1677ff', outlineOffset: -2 } : {}),
+  };
+  return cloneElement(children, {
+    ref: setRefs,
+    style,
+    ...(disabled ? {} : listeners),
+    ...attributes,
+  } as Record<string, unknown>);
+}
+
+const RowContext = createContext<{
+  listeners?: DraggableSyntheticListeners;
+  setActivatorNodeRef?: (element: HTMLElement | null) => void;
+}>({});
+
+function DragHandle() {
+  const { listeners, setActivatorNodeRef } = useContext(RowContext);
+  return (
+    <Button
+      type="text"
+      size="small"
+      ref={setActivatorNodeRef}
+      icon={<HolderOutlined />}
+      style={{ cursor: 'grab' }}
+      {...(listeners ?? {})}
+    />
+  );
+}
+
+// A draggable table row keyed by its `data-row-key`; drag is initiated from the handle only.
+function DraggableRow(
+  props: Readonly<React.HTMLAttributes<HTMLTableRowElement> & { 'data-row-key': string }>,
+) {
+  const rowKey = props['data-row-key'];
+  const enabled = rowKey !== String(ADD_ROW_ID);
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDrag,
+    setActivatorNodeRef,
+    transform,
+    isDragging,
+  } = useDraggable({ id: rowKey, disabled: !enabled });
+  const { setNodeRef: setDrop, isOver } = useDroppable({ id: rowKey, disabled: !enabled });
+  const setRefs = (node: HTMLTableRowElement | null) => {
+    setDrag(node);
+    setDrop(node);
+  };
+  const style: React.CSSProperties = {
+    ...props.style,
+    ...(transform
+      ? { transform: `translateY(${transform.y}px)`, position: 'relative', zIndex: isDragging ? 2 : undefined }
+      : {}),
+    ...(isOver && !isDragging ? { background: 'rgba(22, 119, 255, 0.12)' } : {}),
+  };
+  const ctx = useMemo(() => ({ listeners, setActivatorNodeRef }), [listeners, setActivatorNodeRef]);
+  return (
+    <RowContext.Provider value={ctx}>
+      <tr {...props} {...attributes} ref={setRefs} style={style} />
+    </RowContext.Provider>
+  );
+}
+
 
 export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
   const { message } = AntApp.useApp();
@@ -135,6 +250,64 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
     onSuccess: () => invalidateVars(),
     onError: (e) => message.error(extractErrorMessage(e, 'Failed to delete variable')),
   });
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const reorderTables = useMutation({
+    mutationFn: (orderedIds: number[]) => reorderVarTables(artifactId, orderedIds),
+    onMutate: async (orderedIds) => {
+      await queryClient.cancelQueries({ queryKey: tablesKey });
+      const prev = queryClient.getQueryData<VarTable[]>(tablesKey);
+      queryClient.setQueryData<VarTable[]>(tablesKey, (old) => {
+        if (!old) return old;
+        const byId = new Map(old.map((t) => [t.id, t]));
+        return orderedIds.map((id) => byId.get(id)).filter((t): t is VarTable => t != null);
+      });
+      return { prev };
+    },
+    onError: (e, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(tablesKey, ctx.prev);
+      message.error(extractErrorMessage(e, 'Failed to reorder tables'));
+    },
+    onSettled: () => invalidateTables(),
+  });
+
+  const reorderVarRows = useMutation({
+    mutationFn: (orderedIds: number[]) => reorderVars(artifactId, activeTableId as number, orderedIds),
+    onMutate: async (orderedIds) => {
+      await queryClient.cancelQueries({ queryKey: varsKey });
+      const prev = queryClient.getQueryData<Variable[]>(varsKey);
+      queryClient.setQueryData<Variable[]>(varsKey, (old) => {
+        if (!old) return old;
+        const byId = new Map(old.map((v) => [v.id, v]));
+        return orderedIds.map((id) => byId.get(id)).filter((v): v is Variable => v != null);
+      });
+      return { prev };
+    },
+    onError: (e, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(varsKey, ctx.prev);
+      message.error(extractErrorMessage(e, 'Failed to reorder variables'));
+    },
+    onSettled: () => invalidateVars(),
+  });
+
+  const onTabDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const ids = tables.map((t) => t.id);
+    const from = ids.indexOf(Number(active.id));
+    const to = ids.indexOf(Number(over.id));
+    if (from < 0 || to < 0) return;
+    reorderTables.mutate(arrayMove(ids, from, to));
+  };
+
+  const onVarDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const ids = vars.map((v) => v.id);
+    const from = ids.indexOf(Number(active.id));
+    const to = ids.indexOf(Number(over.id));
+    if (from < 0 || to < 0) return;
+    reorderVarRows.mutate(arrayMove(ids, from, to));
+  };
 
   const startAdd = () => {
     setEditingId(null);
@@ -227,6 +400,13 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
   );
 
   const columns: ColumnsType<Variable> = [
+    {
+      title: '',
+      key: 'sort',
+      width: 36,
+      render: (_, row) =>
+        row.id === ADD_ROW_ID || row.id === editingId || adding ? null : <DragHandle />,
+    },
     {
       title: 'Key',
       dataIndex: 'keyName',
@@ -443,6 +623,21 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
             type="editable-card"
             hideAdd
             activeKey={activeKey}
+            renderTabBar={(tabBarProps, DefaultTabBar) => (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onTabDragEnd}>
+                <DefaultTabBar {...tabBarProps}>
+                  {(node) => (
+                    <DraggableTabNode
+                      key={node.key}
+                      id={String(node.key)}
+                      disabled={tableEditId !== null || node.key === NEW_TAB_KEY}
+                    >
+                      {node as ReactElement}
+                    </DraggableTabNode>
+                  )}
+                </DefaultTabBar>
+              </DndContext>
+            )}
             onChange={(k) => {
               if (k === NEW_TAB_KEY) return;
               setActiveTableId(Number(k));
@@ -483,19 +678,22 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
               Add variable
             </Button>
           </div>
-          <Table<Variable>
-            size="small"
-            rowKey="id"
-            loading={varsLoading || tablesLoading}
-            columns={columns}
-            dataSource={adding ? [...vars, { id: ADD_ROW_ID, keyName: '', value: '' } as Variable] : vars}
-            pagination={false}
-            locale={{
-              emptyText: (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No variables in this table" />
-              ),
-            }}
-          />
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onVarDragEnd}>
+            <Table<Variable>
+              size="small"
+              rowKey="id"
+              loading={varsLoading || tablesLoading}
+              columns={columns}
+              components={{ body: { row: DraggableRow } }}
+              dataSource={adding ? [...vars, { id: ADD_ROW_ID, keyName: '', value: '' } as Variable] : vars}
+              pagination={false}
+              locale={{
+                emptyText: (
+                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No variables in this table" />
+                ),
+              }}
+            />
+          </DndContext>
         </>
       )}
     </Card>

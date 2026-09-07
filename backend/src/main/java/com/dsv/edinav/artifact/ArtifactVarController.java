@@ -2,6 +2,7 @@ package com.dsv.edinav.artifact;
 
 import com.dsv.edinav.artifact.dto.ArtifactVarDto;
 import com.dsv.edinav.artifact.dto.ArtifactVarTableDto;
+import com.dsv.edinav.artifact.dto.ReorderRequest;
 import com.dsv.edinav.artifact.dto.VarRequest;
 import com.dsv.edinav.artifact.dto.VarTableRequest;
 import com.dsv.edinav.security.AppUserPrincipal;
@@ -58,6 +59,13 @@ public class ArtifactVarController {
         artifactService.deleteVarTable(principal.getId(), artifactId, tableId);
     }
 
+    @PutMapping("/reorder")
+    public List<ArtifactVarTableDto> reorderTables(@PathVariable Long artifactId,
+                                                   @RequestBody ReorderRequest request,
+                                                   @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.reorderVarTables(principal.getId(), artifactId, request.orderedIds());
+    }
+
     @GetMapping("/{tableId}/vars")
     public List<ArtifactVarDto> listVars(@PathVariable Long artifactId,
                                          @PathVariable Long tableId,
@@ -71,6 +79,14 @@ public class ArtifactVarController {
                                     @RequestBody VarRequest request,
                                     @AuthenticationPrincipal AppUserPrincipal principal) {
         return artifactService.createVar(principal.getId(), artifactId, tableId, request);
+    }
+
+    @PutMapping("/{tableId}/vars/reorder")
+    public List<ArtifactVarDto> reorderVars(@PathVariable Long artifactId,
+                                            @PathVariable Long tableId,
+                                            @RequestBody ReorderRequest request,
+                                            @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.reorderVars(principal.getId(), artifactId, tableId, request.orderedIds());
     }
 
     @PutMapping("/{tableId}/vars/{varId}")

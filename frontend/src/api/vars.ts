@@ -47,6 +47,16 @@ export async function deleteVarTable(artifactId: number, tableId: number): Promi
   await api.delete(`/artifacts/${artifactId}/var-tables/${tableId}`);
 }
 
+export async function reorderVarTables(
+  artifactId: number,
+  orderedIds: number[],
+): Promise<VarTable[]> {
+  const { data } = await api.put<VarTable[]>(`/artifacts/${artifactId}/var-tables/reorder`, {
+    orderedIds,
+  });
+  return data;
+}
+
 export async function fetchVars(artifactId: number, tableId: number): Promise<Variable[]> {
   const { data } = await api.get<Variable[]>(`/artifacts/${artifactId}/var-tables/${tableId}/vars`);
   return data;
@@ -83,4 +93,16 @@ export async function deleteVar(
   varId: number,
 ): Promise<void> {
   await api.delete(`/artifacts/${artifactId}/var-tables/${tableId}/vars/${varId}`);
+}
+
+export async function reorderVars(
+  artifactId: number,
+  tableId: number,
+  orderedIds: number[],
+): Promise<Variable[]> {
+  const { data } = await api.put<Variable[]>(
+    `/artifacts/${artifactId}/var-tables/${tableId}/vars/reorder`,
+    { orderedIds },
+  );
+  return data;
 }
