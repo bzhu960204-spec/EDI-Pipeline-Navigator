@@ -1,6 +1,7 @@
 import { App as AntApp, Button, Empty, List, Modal, Popconfirm, Space, Spin, Tag, Tooltip, Typography } from 'antd';
-import { DeleteOutlined, DownloadOutlined, EyeOutlined, RollbackOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DiffOutlined, DownloadOutlined, EyeOutlined, RollbackOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import dayjs from 'dayjs';
 import {
   deleteVersion,
@@ -10,6 +11,7 @@ import {
   type ArtifactVersion,
 } from '../../api/artifacts';
 import { extractErrorMessage } from '../../api/client';
+import { CompareVersionModal } from './CompareVersionModal';
 
 interface VersionHistoryModalProps {
   open: boolean;
@@ -30,12 +32,15 @@ export function VersionHistoryModal({
 }: Readonly<VersionHistoryModalProps>) {
   const { message } = AntApp.useApp();
   const queryClient = useQueryClient();
+  const [compareBase, setCompareBase] = useState<ArtifactVersion | null>(null);
 
   const { data: versions = [], isLoading } = useQuery({
     queryKey: ['artifacts', artifactId, 'versions'],
     queryFn: () => fetchVersions(artifactId),
     enabled: open,
   });
+
+  const currentVersionNumber = versions.find((v) => v.current)?.versionNumber;
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['artifacts', artifactId] });
@@ -73,6 +78,7 @@ export function VersionHistoryModal({
   };
 
   return (
+    <>
     <Modal open={open} title="Version history" width={640} footer={null} onCancel={onCancel} destroyOnClose>
       {isLoading ? (
         <div style={{ textAlign: 'center', padding: 24 }}>
@@ -99,6 +105,18 @@ export function VersionHistoryModal({
                   <Tooltip key="download" title="Download ZIP">
                     <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => download(v)} />
                   </Tooltip>,
+                  v.current ? (
+                    <span key="compare" />
+                  ) : (
+                    <Tooltip key="compare" title="Compare with current version">
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<DiffOutlined />}
+                        onClick={() => setCompareBase(v)}
+                      />
+                    </Tooltip>
+                  ),
                   v.current ? (
                     <span key="current" />
                   ) : (
@@ -145,5 +163,13 @@ export function VersionHistoryModal({
         />
       )}
     </Modal>
+    <CompareVersionModal
+      open={compareBase != null}
+      artifactId={artifactId}
+      baseVersion={compareBase}
+      currentVersionNumber={currentVersionNumber}
+      onClose={() => setCompareBase(null)}
+    />
+    </>
   );
 }

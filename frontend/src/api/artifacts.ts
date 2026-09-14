@@ -351,6 +351,12 @@ export async function fetchVersionDetail(artifactId: number, versionId: number):
   return data;
 }
 
+/** Diffs an older version (base) against the current version (treated as the new side). */
+export async function diffVersionWithCurrent(artifactId: number, versionId: number): Promise<VersionDiff> {
+  const { data } = await api.get<VersionDiff>(`/artifacts/${artifactId}/versions/${versionId}/diff-with-current`);
+  return data;
+}
+
 export async function setCurrentVersion(artifactId: number, versionId: number): Promise<ArtifactDetail> {
   const { data } = await api.post<ArtifactDetail>(`/artifacts/${artifactId}/versions/${versionId}/set-current`, {});
   return data;

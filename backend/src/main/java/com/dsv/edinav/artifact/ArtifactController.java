@@ -245,6 +245,12 @@ public class ArtifactController {
         return artifactService.getVersionDetail(principal.getId(), id, versionId);
     }
 
+    @GetMapping("/{id}/versions/{versionId}/diff-with-current")
+    public VersionDiffDto diffVersionWithCurrent(@PathVariable Long id, @PathVariable Long versionId,
+                                                 @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.diffVersionWithCurrent(principal.getId(), id, versionId);
+    }
+
     @PostMapping("/{id}/versions/{versionId}/set-current")
     public ArtifactDetailDto setCurrentVersion(@PathVariable Long id, @PathVariable Long versionId,
                                                @AuthenticationPrincipal AppUserPrincipal principal) {

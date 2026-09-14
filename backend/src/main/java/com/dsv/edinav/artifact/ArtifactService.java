@@ -979,6 +979,69 @@ public class ArtifactService {
     }
 
     /**
+     * Compares an existing (older) version against the current version by full relative path + content hash.
+     * The current version is treated as the "new" side (added/deleted mirror {@link #analyzeVersionUpload}).
+     * Read-only preview: no staging token is produced.
+     */
+    @Transactional
+    public VersionDiffDto diffVersionWithCurrent(Long ownerId, Long artifactId, Long baseVersionId) {
+        requireOwned(ownerId, artifactId);
+        ArtifactVersion base = requireVersion(artifactId, baseVersionId);
+        ArtifactVersion current = currentVersion(artifactId);
+
+        Map<String, ArtifactNode> baseFiles = versionFilesByPath(base.getId());
+        Map<String, ArtifactNode> currentFiles = versionFilesByPath(current.getId());
+
+        List<DiffEntry> added = new ArrayList<>();
+        List<DiffEntry> modified = new ArrayList<>();
+        List<DiffEntry> deleted = new ArrayList<>();
+        List<DiffEntry> unchanged = new ArrayList<>();
+
+        for (Map.Entry<String, ArtifactNode> e : currentFiles.entrySet()) {
+            String path = e.getKey();
+            ArtifactNode cur = e.getValue();
+            ArtifactNode old = baseFiles.get(path);
+            if (old == null) {
+                added.add(new DiffEntry(path, lastSegment(path), false, cur.getSizeBytes(), null));
+            } else {
+                String curHash = ensureHash(cur);
+                String oldHash = ensureHash(old);
+                if (curHash != null && curHash.equals(oldHash)) {
+                    unchanged.add(new DiffEntry(path, lastSegment(path), false, cur.getSizeBytes(), old.getSizeBytes()));
+                } else {
+                    modified.add(new DiffEntry(path, lastSegment(path), false, cur.getSizeBytes(), old.getSizeBytes()));
+                }
+            }
+        }
+        for (Map.Entry<String, ArtifactNode> e : baseFiles.entrySet()) {
+            if (!currentFiles.containsKey(e.getKey())) {
+                ArtifactNode n = e.getValue();
+                deleted.add(new DiffEntry(e.getKey(), n.getName(), false, n.getSizeBytes(), n.getSizeBytes()));
+            }
+        }
+        Comparator<DiffEntry> byPath = Comparator.comparing(DiffEntry::path, String.CASE_INSENSITIVE_ORDER);
+        added.sort(byPath);
+        modified.sort(byPath);
+        deleted.sort(byPath);
+        unchanged.sort(byPath);
+        return new VersionDiffDto(null, added, modified, deleted, unchanged,
+                added.size(), modified.size(), deleted.size(), unchanged.size());
+    }
+
+    private Map<String, ArtifactNode> versionFilesByPath(Long versionId) {
+        List<ArtifactNode> nodes = nodeRepository.findByVersionIdOrderByOrderIndexAsc(versionId);
+        Map<Long, ArtifactNode> byId = nodes.stream()
+                .collect(Collectors.toMap(ArtifactNode::getId, n -> n));
+        Map<String, ArtifactNode> files = new HashMap<>();
+        for (ArtifactNode n : nodes) {
+            if (!n.isFolder()) {
+                files.put(nodePath(byId, n.getId()), n);
+            }
+        }
+        return files;
+    }
+
+    /**
      * Creates a new version from a previously analysed upload: materialises the uploaded tree as a full
      * snapshot, reuses stored files whose path + hash are unchanged, migrates the checklist, and makes the
      * new version current.
