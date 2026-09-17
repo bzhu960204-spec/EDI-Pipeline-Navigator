@@ -177,6 +177,7 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editKey, setEditKey] = useState('');
   const [editValue, setEditValue] = useState('');
+  const [editFocus, setEditFocus] = useState<'key' | 'value'>('key');
   const addKeyRef = useRef<InputRef>(null);
 
   const tablesKey = ['artifacts', artifactId, 'var-tables'];
@@ -331,11 +332,12 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
     saveVar.mutate({ id: null, keyName, value: addValue });
   };
 
-  const startEdit = (row: Variable) => {
+  const startEdit = (row: Variable, focus: 'key' | 'value' = 'key') => {
     setAdding(false);
     setEditingId(row.id);
     setEditKey(row.keyName);
     setEditValue(row.value ?? '');
+    setEditFocus(focus);
   };
   const cancelEdit = () => {
     setEditingId(null);
@@ -442,7 +444,7 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
           return (
             <Input
               size="small"
-              autoFocus
+              autoFocus={editFocus === 'key'}
               value={editKey}
               maxLength={200}
               onChange={(e) => setEditKey(e.target.value)}
@@ -457,7 +459,7 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
             strong
             style={{ cursor: busy ? undefined : 'pointer', display: 'block', minHeight: 22 }}
             onDoubleClick={() => {
-              if (!busy) startEdit(row);
+              if (!busy) startEdit(row, 'key');
             }}
           >
             {k}
@@ -486,6 +488,7 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
           return (
             <Input.TextArea
               size="small"
+              autoFocus={editFocus === 'value'}
               value={editValue}
               maxLength={2000}
               autoSize={{ minRows: 1, maxRows: 6 }}
@@ -500,7 +503,7 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
           <Typography.Text
             style={{ wordBreak: 'break-all', cursor: busy ? undefined : 'pointer', display: 'block', minHeight: 22 }}
             onDoubleClick={() => {
-              if (!busy) startEdit(row);
+              if (!busy) startEdit(row, 'value');
             }}
           >
             {v}
