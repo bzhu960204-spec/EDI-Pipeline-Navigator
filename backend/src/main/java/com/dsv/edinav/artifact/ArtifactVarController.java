@@ -1,11 +1,14 @@
 package com.dsv.edinav.artifact;
 
+import com.dsv.edinav.artifact.dto.ApplyVarTemplateRequest;
 import com.dsv.edinav.artifact.dto.ArtifactVarDto;
 import com.dsv.edinav.artifact.dto.ArtifactVarTableDto;
 import com.dsv.edinav.artifact.dto.ReorderRequest;
+import com.dsv.edinav.artifact.dto.SaveVarTemplateRequest;
 import com.dsv.edinav.artifact.dto.VarRequest;
 import com.dsv.edinav.artifact.dto.VarTableRequest;
 import com.dsv.edinav.security.AppUserPrincipal;
+import com.dsv.edinav.vartabletemplate.dto.VarTableTemplateDto;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -64,6 +67,30 @@ public class ArtifactVarController {
                                                    @RequestBody ReorderRequest request,
                                                    @AuthenticationPrincipal AppUserPrincipal principal) {
         return artifactService.reorderVarTables(principal.getId(), artifactId, request.orderedIds());
+    }
+
+    @PostMapping("/apply-template")
+    public List<ArtifactVarTableDto> applyTemplate(@PathVariable Long artifactId,
+                                                   @RequestBody ApplyVarTemplateRequest request,
+                                                   @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.applyVarTemplate(principal.getId(), artifactId, request);
+    }
+
+    @PostMapping("/save-as-template")
+    public VarTableTemplateDto saveAsTemplate(@PathVariable Long artifactId,
+                                              @RequestBody SaveVarTemplateRequest request,
+                                              @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.saveArtifactAsVarTemplate(principal.getId(), artifactId, request,
+                principal.getUsername());
+    }
+
+    @PostMapping("/{tableId}/save-as-template")
+    public VarTableTemplateDto saveTableAsTemplate(@PathVariable Long artifactId,
+                                                   @PathVariable Long tableId,
+                                                   @RequestBody SaveVarTemplateRequest request,
+                                                   @AuthenticationPrincipal AppUserPrincipal principal) {
+        return artifactService.saveVarTableAsTemplate(principal.getId(), artifactId, tableId, request,
+                principal.getUsername());
     }
 
     @GetMapping("/{tableId}/vars")

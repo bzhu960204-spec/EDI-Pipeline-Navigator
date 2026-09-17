@@ -61,6 +61,7 @@ import {
   type VarTable,
 } from '../../api/vars';
 import { extractErrorMessage } from '../../api/client';
+import { VarTemplateTools } from './VarTemplateTools';
 
 interface VariablesPanelProps {
   artifactId: number;
@@ -602,14 +603,23 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
       title="Variables"
       styles={{ body: { paddingTop: tables.length ? 0 : 24 } }}
       extra={
-        <Button
-          size="small"
-          icon={<PlusOutlined />}
-          disabled={tableEditId !== null}
-          onClick={startNewTable}
-        >
-          New table
-        </Button>
+        <Space size={4}>
+          <VarTemplateTools
+            artifactId={artifactId}
+            activeTableId={activeTableId}
+            activeTableName={activeTable?.name}
+            hasTables={tables.length > 0}
+            disabled={tableEditId !== null}
+          />
+          <Button
+            size="small"
+            icon={<PlusOutlined />}
+            disabled={tableEditId !== null}
+            onClick={startNewTable}
+          >
+            New table
+          </Button>
+        </Space>
       }
     >
       {tables.length === 0 && tableEditId !== 'new' ? (

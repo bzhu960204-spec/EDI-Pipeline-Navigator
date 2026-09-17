@@ -1,5 +1,6 @@
 package com.dsv.edinav.artifact;
 
+import com.dsv.edinav.artifact.dto.ApplyVarTemplateRequest;
 import com.dsv.edinav.artifact.dto.ArtifactChecklistItemDto;
 import com.dsv.edinav.artifact.dto.ArtifactDetailDto;
 import com.dsv.edinav.artifact.dto.ArtifactLogDto;
@@ -19,6 +20,7 @@ import com.dsv.edinav.artifact.dto.ImportAnalysisDto;
 import com.dsv.edinav.artifact.dto.ImportNodeDto;
 import com.dsv.edinav.artifact.dto.LogRequest;
 import com.dsv.edinav.artifact.dto.SaveAsTemplateRequest;
+import com.dsv.edinav.artifact.dto.SaveVarTemplateRequest;
 import com.dsv.edinav.artifact.dto.StatusHistoryDto;
 import com.dsv.edinav.artifact.dto.TemplateFolderDto;
 import com.dsv.edinav.artifact.dto.UpdateChecklistItemRequest;
@@ -37,6 +39,9 @@ import com.dsv.edinav.template.dto.TemplateNodeInput;
 import com.dsv.edinav.template.dto.TemplateRequest;
 import com.dsv.edinav.user.User;
 import com.dsv.edinav.user.UserRepository;
+import com.dsv.edinav.vartabletemplate.VarTableTemplateService;
+import com.dsv.edinav.vartabletemplate.dto.VarTableTemplateDto;
+import com.dsv.edinav.vartabletemplate.dto.VarTableTemplateTabDto;
 import com.dsv.edinav.workflow.Workflow;
 import com.dsv.edinav.workflow.WorkflowRepository;
 import com.dsv.edinav.workflow.WorkflowStep;
@@ -78,6 +83,7 @@ public class ArtifactService {
     private final ArtifactVarTableRepository varTableRepository;
     private final ArtifactVarRepository varRepository;
     private final TemplateService templateService;
+    private final VarTableTemplateService varTableTemplateService;
     private final FileStorageService storage;
     private final ImportStagingService importStaging;
     private final WorkflowStepRepository stepRepository;
@@ -93,6 +99,7 @@ public class ArtifactService {
                            ArtifactVarTableRepository varTableRepository,
                            ArtifactVarRepository varRepository,
                            TemplateService templateService,
+                           VarTableTemplateService varTableTemplateService,
                            FileStorageService storage,
                            ImportStagingService importStaging,
                            WorkflowStepRepository stepRepository,
@@ -107,6 +114,7 @@ public class ArtifactService {
         this.varTableRepository = varTableRepository;
         this.varRepository = varRepository;
         this.templateService = templateService;
+        this.varTableTemplateService = varTableTemplateService;
         this.storage = storage;
         this.importStaging = importStaging;
         this.stepRepository = stepRepository;
@@ -460,6 +468,81 @@ public class ArtifactService {
 
     private ArtifactVarDto toVarDto(ArtifactVar entry) {
         return new ArtifactVarDto(entry.getId(), entry.getKeyName(), entry.getValue(), entry.getOrderIndex());
+    }
+
+    // ---------------- Variable-table templates ----------------
+
+    @Transactional
+    public List<ArtifactVarTableDto> applyVarTemplate(Long ownerId, Long artifactId, ApplyVarTemplateRequest request) {
+        requireOwned(ownerId, artifactId);
+        if (request.templateId() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "templateId is required");
+        }
+        List<VarTableTemplateTabDto> tabs = varTableTemplateService.resolveTabs(ownerId, request.templateId());
+        boolean replace = "REPLACE".equalsIgnoreCase(request.mode());
+        if (replace) {
+            List<ArtifactVarTable> existing = varTableRepository.findByArtifactId(artifactId);
+            for (ArtifactVarTable table : existing) {
+                varRepository.deleteByTableId(table.getId());
+            }
+            varTableRepository.deleteAll(existing);
+        }
+        for (VarTableTemplateTabDto tab : tabs) {
+            ArtifactVarTable table = varTableRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId).stream()
+                    .filter(t -> t.getName().equalsIgnoreCase(tab.name()))
+                    .findFirst()
+                    .orElse(null);
+            if (table == null) {
+                table = new ArtifactVarTable();
+                table.setArtifactId(artifactId);
+                table.setName(tab.name());
+                table.setOrderIndex(varTableRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId).size());
+                varTableRepository.save(table);
+            }
+            int nextOrder = varRepository.findByTableIdOrderByOrderIndexAsc(table.getId()).size();
+            List<String> keys = tab.keys() == null ? List.of() : tab.keys();
+            for (String key : keys) {
+                if (key == null || key.isBlank()
+                        || varRepository.existsByTableIdAndKeyNameIgnoreCase(table.getId(), key)) {
+                    continue;
+                }
+                ArtifactVar entry = new ArtifactVar();
+                entry.setTableId(table.getId());
+                entry.setKeyName(key.trim());
+                entry.setValue("");
+                entry.setOrderIndex(nextOrder++);
+                varRepository.save(entry);
+            }
+        }
+        return varTableRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId).stream()
+                .map(this::toVarTableDto)
+                .toList();
+    }
+
+    @Transactional
+    public VarTableTemplateDto saveArtifactAsVarTemplate(Long ownerId, Long artifactId,
+                                                         SaveVarTemplateRequest request, String username) {
+        requireOwned(ownerId, artifactId);
+        List<VarTableTemplateTabDto> tabs = varTableRepository.findByArtifactIdOrderByOrderIndexAsc(artifactId).stream()
+                .map(this::toTemplateTab)
+                .toList();
+        return varTableTemplateService.createFrom(ownerId, request.name(), request.description(), tabs, username);
+    }
+
+    @Transactional
+    public VarTableTemplateDto saveVarTableAsTemplate(Long ownerId, Long artifactId, Long tableId,
+                                                      SaveVarTemplateRequest request, String username) {
+        requireOwned(ownerId, artifactId);
+        ArtifactVarTable table = requireVarTable(artifactId, tableId);
+        return varTableTemplateService.createFrom(ownerId, request.name(), request.description(),
+                List.of(toTemplateTab(table)), username);
+    }
+
+    private VarTableTemplateTabDto toTemplateTab(ArtifactVarTable table) {
+        List<String> keys = varRepository.findByTableIdOrderByOrderIndexAsc(table.getId()).stream()
+                .map(ArtifactVar::getKeyName)
+                .toList();
+        return new VarTableTemplateTabDto(table.getName(), keys);
     }
 
     // ---------------- Nodes ----------------
