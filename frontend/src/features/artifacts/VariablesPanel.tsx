@@ -1,6 +1,7 @@
 import {
   cloneElement,
   createContext,
+  type FocusEvent,
   type KeyboardEvent,
   type ReactElement,
   useContext,
@@ -386,6 +387,16 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
     }
   };
 
+  // Commit an in-progress edit when focus leaves the row; keep editing when focus
+  // moves to the other field or the save/cancel buttons within the same row.
+  const commitEditOnBlur = (e: FocusEvent<HTMLElement>) => {
+    const row = e.currentTarget.closest('tr');
+    const next = e.relatedTarget as HTMLElement | null;
+    if (next && row && row.contains(next)) return;
+    if (editKey.trim()) submitEdit();
+    else cancelEdit();
+  };
+
   const copyValue = async (value: string) => {
     try {
       await navigator.clipboard.writeText(value ?? '');
@@ -436,10 +447,22 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
               maxLength={200}
               onChange={(e) => setEditKey(e.target.value)}
               onKeyDown={(e) => rowKeyDown(e, submitEdit, cancelEdit)}
+              onBlur={commitEditOnBlur}
             />
           );
         }
-        return <Typography.Text strong>{k}</Typography.Text>;
+        const busy = adding || editingId !== null;
+        return (
+          <Typography.Text
+            strong
+            style={{ cursor: busy ? undefined : 'pointer', display: 'block', minHeight: 22 }}
+            onDoubleClick={() => {
+              if (!busy) startEdit(row);
+            }}
+          >
+            {k}
+          </Typography.Text>
+        );
       },
     },
     {
@@ -468,11 +491,20 @@ export function VariablesPanel({ artifactId }: Readonly<VariablesPanelProps>) {
               autoSize={{ minRows: 1, maxRows: 6 }}
               onChange={(e) => setEditValue(e.target.value)}
               onKeyDown={(e) => rowKeyDown(e, submitEdit, cancelEdit)}
+              onBlur={commitEditOnBlur}
             />
           );
         }
+        const busy = adding || editingId !== null;
         return (
-          <Typography.Text style={{ wordBreak: 'break-all' }}>{v}</Typography.Text>
+          <Typography.Text
+            style={{ wordBreak: 'break-all', cursor: busy ? undefined : 'pointer', display: 'block', minHeight: 22 }}
+            onDoubleClick={() => {
+              if (!busy) startEdit(row);
+            }}
+          >
+            {v}
+          </Typography.Text>
         );
       },
     },
