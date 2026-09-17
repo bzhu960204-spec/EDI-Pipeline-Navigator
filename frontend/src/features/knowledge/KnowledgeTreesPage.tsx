@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { App as AntApp, Button, Empty, Form, Input, Modal, Popconfirm, Space, Table, Typography, Upload } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DeleteOutlined, EditOutlined, PlusOutlined, PartitionOutlined, ImportOutlined, InboxOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, PlusOutlined, PartitionOutlined, ImportOutlined, InboxOutlined, SearchOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -31,6 +31,7 @@ export function KnowledgeTreesPage() {
   const [editing, setEditing] = useState<KnowledgeTree | null | undefined>(undefined);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
 
   const { data: trees = [], isLoading } = useQuery({
     queryKey: ['knowledge', 'trees'],
@@ -38,6 +39,15 @@ export function KnowledgeTreesPage() {
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['knowledge', 'trees'] });
+
+  const filteredTrees = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return trees;
+    return trees.filter(
+      (t) =>
+        t.name.toLowerCase().includes(term) || (t.description ?? '').toLowerCase().includes(term),
+    );
+  }, [trees, searchTerm]);
 
   const createM = useMutation({
     mutationFn: (payload: KnowledgeTreePayload) => createKnowledgeTree(payload),
@@ -164,6 +174,14 @@ export function KnowledgeTreesPage() {
           Knowledge Trees
         </Typography.Title>
         <Space>
+          <Input
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="Search trees"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ width: 220 }}
+          />
           <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
             Import
           </Button>
@@ -177,9 +195,9 @@ export function KnowledgeTreesPage() {
         rowKey="id"
         loading={isLoading}
         columns={columns}
-        dataSource={trees}
+        dataSource={filteredTrees}
         pagination={false}
-        locale={{ emptyText: <Empty description="No knowledge trees yet" /> }}
+        locale={{ emptyText: <Empty description={searchTerm.trim() ? 'No matching trees' : 'No knowledge trees yet'} /> }}
       />
 
       <Modal

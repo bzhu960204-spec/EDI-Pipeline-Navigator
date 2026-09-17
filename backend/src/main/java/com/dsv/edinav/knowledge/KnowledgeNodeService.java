@@ -12,7 +12,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -40,6 +42,22 @@ public class KnowledgeNodeService {
         requireOwnedNode(id);
         return nodeRepository.findByParentIdOrderByOrderIndexAscNameAsc(id).stream()
                 .map(this::toDto).toList();
+    }
+
+    /** Every node of a tree as a flat list, child counts computed in one pass, for full-tree search. */
+    @Transactional(readOnly = true)
+    public List<KnowledgeNodeDto> getTreeNodes(Long treeId) {
+        requireOwnedTree(treeId);
+        List<KnowledgeNode> nodes = nodeRepository.findByTreeId(treeId);
+        Map<Long, Long> childCounts = new HashMap<>();
+        for (KnowledgeNode n : nodes) {
+            if (n.getParentId() != null) {
+                childCounts.merge(n.getParentId(), 1L, Long::sum);
+            }
+        }
+        return nodes.stream()
+                .map(n -> KnowledgeMapper.toNodeDto(n, childCounts.getOrDefault(n.getId(), 0L)))
+                .toList();
     }
 
     /** Ancestor chain including the node itself, ordered from root to the node, for breadcrumbs. */
@@ -152,6 +170,15 @@ public class KnowledgeNodeService {
             throw new ApiException(HttpStatus.NOT_FOUND, "Knowledge node not found");
         }
         return node;
+    }
+
+    private KnowledgeTree requireOwnedTree(Long treeId) {
+        KnowledgeTree tree = treeRepository.findById(treeId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Knowledge tree not found"));
+        if (!tree.getOwnerId().equals(currentUser.requireUserId())) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Knowledge tree not found");
+        }
+        return tree;
     }
 
     private static List<Long> parsePathIds(String path) {

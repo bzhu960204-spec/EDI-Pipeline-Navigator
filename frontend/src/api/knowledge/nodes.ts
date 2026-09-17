@@ -16,6 +16,11 @@ export async function fetchNodeChildren(id: number): Promise<KnowledgeNode[]> {
   return data;
 }
 
+export async function fetchTreeNodes(treeId: number): Promise<KnowledgeNode[]> {
+  const { data } = await api.get<KnowledgeNode[]>(`/knowledge/trees/${treeId}/nodes`);
+  return data;
+}
+
 export async function fetchNodeAncestors(id: number): Promise<KnowledgeNode[]> {
   const { data } = await api.get<KnowledgeNode[]>(`/knowledge/nodes/${id}/ancestors`);
   return data;

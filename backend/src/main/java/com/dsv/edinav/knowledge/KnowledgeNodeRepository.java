@@ -11,6 +11,8 @@ public interface KnowledgeNodeRepository extends JpaRepository<KnowledgeNode, Lo
 
     List<KnowledgeNode> findByParentIdOrderByOrderIndexAscNameAsc(Long parentId);
 
+    List<KnowledgeNode> findByTreeId(Long treeId);
+
     long countByParentId(Long parentId);
 
     long countByTreeId(Long treeId);

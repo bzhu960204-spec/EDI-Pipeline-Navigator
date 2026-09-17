@@ -36,6 +36,7 @@ import {
   PlusOutlined,
   StarOutlined,
   AimOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -47,6 +48,7 @@ import {
   fetchKnowledgeTree,
   fetchNodeAncestors,
   fetchNodeChildren,
+  fetchTreeNodes,
   fetchTreeVersions,
   moveKnowledgeNode,
   setCurrentTreeVersion,
@@ -75,6 +77,83 @@ function buildDataNode(node: KnowledgeNode): DataNode {
       </Space>
     ),
   };
+}
+
+/** Render {@code text} with the first case-insensitive occurrence of {@code term} highlighted. */
+function highlightMatch(text: string, term: string) {
+  const idx = text.toLowerCase().indexOf(term.toLowerCase());
+  if (idx < 0) return <span>{text}</span>;
+  return (
+    <span>
+      {text.slice(0, idx)}
+      <span style={{ backgroundColor: '#ffe58f', color: '#000' }}>{text.slice(idx, idx + term.length)}</span>
+      {text.slice(idx + term.length)}
+    </span>
+  );
+}
+
+function nodeMatches(node: KnowledgeNode, lowerTerm: string): boolean {
+  return (
+    node.name.toLowerCase().includes(lowerTerm) ||
+    (node.description ?? '').toLowerCase().includes(lowerTerm) ||
+    (node.notes ?? '').toLowerCase().includes(lowerTerm)
+  );
+}
+
+/**
+ * Build a filtered {@link DataNode} tree from a flat node list, keeping only nodes that match the
+ * term or have a matching descendant. Returns the tree rooted at {@code rootId} plus the keys that
+ * should be auto-expanded to reveal every match.
+ */
+function buildFilteredTree(
+  nodes: KnowledgeNode[],
+  rootId: number,
+  term: string,
+): { data: DataNode[]; expandedKeys: number[] } {
+  const lower = term.toLowerCase();
+  const byId = new Map<number, KnowledgeNode>();
+  const childrenOf = new Map<number, KnowledgeNode[]>();
+  nodes.forEach((n) => byId.set(n.id, n));
+  nodes.forEach((n) => {
+    if (n.parentId != null) {
+      const arr = childrenOf.get(n.parentId) ?? [];
+      arr.push(n);
+      childrenOf.set(n.parentId, arr);
+    }
+  });
+  childrenOf.forEach((arr) =>
+    arr.sort((a, b) => a.orderIndex - b.orderIndex || a.name.localeCompare(b.name)),
+  );
+
+  const expandedKeys: number[] = [];
+
+  const build = (node: KnowledgeNode): DataNode | null => {
+    const kids = childrenOf.get(node.id) ?? [];
+    const builtKids = kids.map(build).filter((n): n is DataNode => n !== null);
+    const selfMatch = nodeMatches(node, lower);
+    if (!selfMatch && builtKids.length === 0) return null;
+    if (builtKids.length > 0) expandedKeys.push(node.id);
+    return {
+      key: node.id,
+      isLeaf: kids.length === 0,
+      children: builtKids.length ? builtKids : undefined,
+      title: (
+        <Space size={6}>
+          {highlightMatch(node.name, term)}
+          {kids.length > 0 && (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {kids.length}
+            </Typography.Text>
+          )}
+        </Space>
+      ),
+    };
+  };
+
+  const root = byId.get(rootId);
+  if (!root) return { data: [], expandedKeys: [] };
+  const built = build(root);
+  return { data: built ? [built] : [], expandedKeys };
 }
 
 /** Replace the children of the node identified by {@code key}, leaving the rest of the tree intact. */
@@ -120,6 +199,9 @@ export function KnowledgeTreePage() {
   const [nodesById, setNodesById] = useState<NodeMap>({});
   const [expandedKeys, setExpandedKeys] = useState<number[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchExpandedKeys, setSearchExpandedKeys] = useState<number[]>([]);
+  const [searchAutoExpandParent, setSearchAutoExpandParent] = useState(true);
   // Bumped after an update-from-JSON to force the tree to re-seed from the server.
   const [reseedNonce, setReseedNonce] = useState(0);
   const [updateOpen, setUpdateOpen] = useState(false);
@@ -159,6 +241,34 @@ export function KnowledgeTreePage() {
       return next;
     });
   }, []);
+
+  const trimmedSearch = searchTerm.trim();
+  const searching = trimmedSearch.length > 0;
+
+  // Full flat node list, fetched only while searching so lazy loading stays the default.
+  const { data: allNodes = [], isFetching: allNodesFetching } = useQuery({
+    queryKey: ['knowledge', 'allNodes', treeId, reseedNonce],
+    queryFn: () => fetchTreeNodes(treeId),
+    enabled: Number.isFinite(treeId) && searching,
+  });
+
+  // Keep the detail panel working for nodes only present in the search result.
+  useEffect(() => {
+    if (allNodes.length) mergeNodes(allNodes);
+  }, [allNodes, mergeNodes]);
+
+  const filtered = useMemo(() => {
+    if (!searching || effectiveRootId == null || allNodes.length === 0) {
+      return { data: [] as DataNode[], expandedKeys: [] as number[] };
+    }
+    return buildFilteredTree(allNodes, effectiveRootId, trimmedSearch);
+  }, [searching, effectiveRootId, allNodes, trimmedSearch]);
+
+  // Reset auto-expansion whenever the set of matches changes.
+  useEffect(() => {
+    setSearchExpandedKeys(filtered.expandedKeys);
+    setSearchAutoExpandParent(true);
+  }, [filtered.expandedKeys]);
 
   // (Re)seed the tree whenever the focused root changes.
   useEffect(() => {
@@ -539,7 +649,35 @@ export function KnowledgeTreePage() {
       <Row gutter={16}>
         <Col xs={24} md={11} lg={10}>
           <Card size="small" styles={{ body: { maxHeight: '65vh', overflow: 'auto' } }}>
-            {treeData.length === 0 ? (
+            <Input
+              allowClear
+              prefix={<SearchOutlined />}
+              placeholder="Search nodes"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ marginBottom: 8 }}
+            />
+            {searching ? (
+              allNodesFetching && filtered.data.length === 0 ? (
+                <Spin style={{ display: 'block', margin: '24px auto' }} />
+              ) : filtered.data.length === 0 ? (
+                <Empty description="No matches" />
+              ) : (
+                <Tree
+                  treeData={filtered.data}
+                  expandedKeys={searchExpandedKeys}
+                  autoExpandParent={searchAutoExpandParent}
+                  onExpand={(keys) => {
+                    setSearchExpandedKeys(keys.map(Number));
+                    setSearchAutoExpandParent(false);
+                  }}
+                  selectedKeys={selectedId != null ? [selectedId] : []}
+                  onSelect={(keys) => setSelectedId(keys.length ? Number(keys[0]) : null)}
+                  onDoubleClick={(_e, node) => setFocusId(Number(node.key))}
+                  blockNode
+                />
+              )
+            ) : treeData.length === 0 ? (
               <Empty description="Empty" />
             ) : (
               <Tree

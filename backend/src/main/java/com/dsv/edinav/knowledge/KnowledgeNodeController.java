@@ -38,6 +38,11 @@ public class KnowledgeNodeController {
         return nodeService.getChildren(id);
     }
 
+    @GetMapping("/trees/{treeId}/nodes")
+    public List<KnowledgeNodeDto> getTreeNodes(@PathVariable Long treeId) {
+        return nodeService.getTreeNodes(treeId);
+    }
+
     @GetMapping("/nodes/{id}/ancestors")
     public List<KnowledgeNodeDto> getAncestors(@PathVariable Long id) {
         return nodeService.getAncestors(id);
